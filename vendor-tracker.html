@@ -160,6 +160,13 @@ input.full{width:100%}
 .chat-compose{display:flex;gap:8px;margin-top:10px;align-items:center}
 .chat-compose input{flex:1}
 .chat-compose .btn{width:auto;margin-top:0;padding:12px 16px}
+
+.photo-box{margin-top:12px}
+.photo-preview{display:none;margin-top:8px;position:relative}
+.photo-preview.show{display:block}
+.photo-preview img{width:100%;max-height:220px;object-fit:cover;border-radius:12px;border:1px solid var(--border)}
+.tx-photo{width:100%;max-height:240px;object-fit:cover;border-radius:10px;margin:8px 0;border:1px solid var(--border)}
+.photo-modal img{width:100%;border-radius:12px;max-height:70vh;object-fit:contain}
 </style>
 </head>
 <body>
@@ -238,6 +245,16 @@ input.full{width:100%}
 
       <input class="full" type="text" placeholder="Note (optional)" id="inp-note" style="margin-top:14px">
 
+      <div class="photo-box">
+        <input type="file" accept="image/*" id="inp-photo" class="hidden" onchange="onPhotoPicked(event)">
+        <button type="button" class="btn secondary" onclick="pickPhoto()">Add photo (camera or library)</button>
+        <p class="hint">On iPhone you’ll get Take Photo or Photo Library. Syncs to everyone on live.</p>
+        <div class="photo-preview" id="photo-preview">
+          <img id="photo-preview-img" alt="Selected photo">
+          <button type="button" class="btn danger" style="margin-top:8px" onclick="clearPendingPhoto()">Remove photo</button>
+        </div>
+      </div>
+
       <div id="preview-area"></div>
       <button class="btn" id="submit-btn" onclick="doSubmit()" disabled>Log Transaction</button>
       <p class="err" id="err-msg" style="display:none"></p>
@@ -265,6 +282,7 @@ input.full{width:100%}
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-storage-compat.js"></script>
 <script src="firebase-config.js"></script>
 <script>
 var VENDORS=["B","D","R","A"], POOL="pool", ALL=VENDORS.concat([POOL]);
@@ -281,6 +299,8 @@ var buyoutVendor=null;
 var BUYOUT_SHARE=0.5; // handoff example: vendor sold ~53% — suggest they buy out
 var buyoutPromptTimer=null;
 var buyoutPromptState="idle"; // idle | shown | dismissed | accepted
+var pendingPhoto=null;
+var photoAttachId=null;
 
 function pn(v){var x=parseFloat(v);return isNaN(x)?0:x}
 function fm(a){return a<0?"-$"+Math.abs(a).toFixed(2):"$"+a.toFixed(2)}
@@ -511,6 +531,7 @@ function clearFormInputs(){
   buyoutVendor=null;
   buyoutPromptState="idle";
   if(buyoutPromptTimer){clearTimeout(buyoutPromptTimer);buyoutPromptTimer=null;}
+  clearPendingPhoto();
   updatePickerUI();
   setTradeMode("split");
   onInput();
@@ -531,10 +552,28 @@ function doSubmit(){
     tx.fronted[k]=form.fronted[k];
   });
   if(form.buyout) tx.buyout={vendor:form.buyout.vendor,total:form.buyout.total};
-  txns.unshift(tx);
-  save();
-  cloudWriteTx(tx);
-  clearFormInputs();
+  var btn=el("submit-btn");
+  var blob=pendingPhoto;
+  function finish(url){
+    if(url)tx.photoURL=url;
+    txns.unshift(tx);
+    save();
+    cloudWriteTx(tx);
+    if(btn){btn.disabled=false;btn.textContent="Log Transaction";}
+    clearFormInputs();
+  }
+  if(blob){
+    if(btn){btn.disabled=true;btn.textContent="Uploading photo\u2026";}
+    uploadTxPhoto(tx.id,blob,function(url){
+      if(!url){
+        var err=el("err-msg");
+        if(err){err.textContent="Logged the sale, but the photo didn’t sync. Enable Firebase Storage if this keeps happening.";err.style.display="block";}
+      }
+      finish(url);
+    });
+  }else{
+    finish(null);
+  }
 }
 
 // ===== SETTLEMENT =====
@@ -650,7 +689,7 @@ function renderHistory(){
   txns.forEach(function(tx){
     var open=expanded===tx.id;
     h+='<div class="tx-card"><div class="tx-top" onclick="toggleTx('+tx.id+')">'+
-      '<div><span class="tx-type">'+txType(tx)+'</span>'+
+      '<div><span class="tx-type">'+txType(tx)+(tx.photoURL?" \ud83d\udcf7":"")+'</span>'+
       '<span class="tx-date">'+new Date(tx.ts).toLocaleDateString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})+'</span></div>'+
       '<span class="tx-cash">'+fm(tx.cashIn)+'</span></div>';
     if(tx.note) h+='<p class="tx-note">'+esc(tx.note)+'</p>';
@@ -678,6 +717,10 @@ function renderHistory(){
         }
         h+='</div></div>';
       });
+      if(tx.photoURL){
+        h+='<img class="tx-photo" src="'+esc(tx.photoURL)+'" alt="Transaction photo" onclick="event.stopPropagation();openPhotoById(\''+esc(String(tx.id))+'\')">';
+      }
+      h+='<button class="export-btn" onclick="event.stopPropagation();pickPhoto(\''+esc(String(tx.id))+'\')">'+(tx.photoURL?"Replace photo":"Add photo")+'</button>';
       h+='<button class="btn danger" style="margin-top:8px" onclick="showModal('+tx.id+')">Delete</button></div>';
     }
     h+='</div>';
@@ -687,6 +730,94 @@ function renderHistory(){
 }
 
 function toggleTx(id){expanded=expanded===id?null:id;renderHistory();}
+
+function pickPhoto(forId){
+  photoAttachId=forId?String(forId):null;
+  var inp=el("inp-photo");
+  if(inp)inp.click();
+}
+function clearPendingPhoto(){
+  pendingPhoto=null;
+  var box=el("photo-preview");
+  var img=el("photo-preview-img");
+  if(img)img.removeAttribute("src");
+  if(box)box.classList.remove("show");
+}
+function onPhotoPicked(e){
+  var file=e.target.files&&e.target.files[0];
+  e.target.value="";
+  if(!file)return;
+  compressImage(file,function(blob){
+    if(!blob)return;
+    if(photoAttachId){
+      var id=photoAttachId;
+      photoAttachId=null;
+      uploadAndAttach(id,blob);
+      return;
+    }
+    pendingPhoto=blob;
+    var img=el("photo-preview-img");
+    var box=el("photo-preview");
+    if(img)img.src=URL.createObjectURL(blob);
+    if(box)box.classList.add("show");
+  });
+}
+function compressImage(file,cb){
+  var img=new Image();
+  var url=URL.createObjectURL(file);
+  img.onload=function(){
+    var max=1600,w=img.width,h=img.height;
+    if(w>max||h>max){
+      if(w>h){h=Math.round(h*max/w);w=max;}
+      else{w=Math.round(w*max/h);h=max;}
+    }
+    var canvas=document.createElement("canvas");
+    canvas.width=w;canvas.height=h;
+    canvas.getContext("2d").drawImage(img,0,0,w,h);
+    URL.revokeObjectURL(url);
+    if(canvas.toBlob){
+      canvas.toBlob(function(blob){cb(blob||file)},"image/jpeg",0.72);
+    }else{cb(file);}
+  };
+  img.onerror=function(){URL.revokeObjectURL(url);cb(file)};
+  img.src=url;
+}
+function photoPath(id){return "groups/eclipse/txns/"+String(id)+"/photo.jpg"}
+function uploadTxPhoto(id,blob,cb){
+  if(!blob||typeof firebase==="undefined"||!firebase.storage){cb(null);return;}
+  try{
+    var ref=firebase.storage().ref(photoPath(id));
+    ref.put(blob).then(function(){return ref.getDownloadURL()}).then(function(url){cb(url)}).catch(function(){cb(null)});
+  }catch(e){cb(null);}
+}
+function uploadAndAttach(id,blob){
+  uploadTxPhoto(id,blob,function(url){
+    if(!url){
+      setSyncLabel("Photo didn’t sync — turn on Firebase Storage");
+      return;
+    }
+    var tx=null;
+    txns.forEach(function(t){if(sameId(t.id,id))tx=t});
+    if(!tx)return;
+    tx.photoURL=url;
+    save();
+    cloudWriteTx(tx);
+    renderHistory();
+  });
+}
+function deleteTxPhoto(id){
+  if(typeof firebase==="undefined"||!firebase.storage)return;
+  try{firebase.storage().ref(photoPath(id)).delete().catch(function(){})}catch(e){}
+}
+function openPhotoById(id){
+  var tx=null;
+  txns.forEach(function(t){if(sameId(t.id,id))tx=t});
+  if(!tx||!tx.photoURL)return;
+  el("modal-container").innerHTML='<div class="modal-bg" onclick="hideModal()">'+
+    '<div class="modal photo-modal" onclick="event.stopPropagation()">'+
+    '<img src="'+esc(tx.photoURL)+'" alt="Transaction photo">'+
+    '<button class="btn secondary" onclick="hideModal()">Close</button></div></div>';
+}
 
 // ===== CHAT =====
 function loadMe(){
@@ -972,6 +1103,7 @@ function txToCloud(tx){
     cashOut:tx.cashOut||0,
     note:tx.note||""
   };
+  if(tx.photoURL)out.photoURL=tx.photoURL;
   if(tx.buyout&&tx.buyout.vendor){
     out.buyout={vendor:tx.buyout.vendor,total:tx.buyout.total||0};
   }
@@ -1006,6 +1138,7 @@ function cloudDeleteTx(id){
     return;
   }
   cloudCol.doc(String(id)).delete().then(function(){
+    deleteTxPhoto(id);
     setSyncLabel("Live \u00b7 shared",true);
   }).catch(function(){
     setSyncLabel("Delete failed to sync");
