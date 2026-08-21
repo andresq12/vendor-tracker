@@ -552,27 +552,22 @@ function doSubmit(){
     tx.fronted[k]=form.fronted[k];
   });
   if(form.buyout) tx.buyout={vendor:form.buyout.vendor,total:form.buyout.total};
-  var btn=el("submit-btn");
   var blob=pendingPhoto;
-  function finish(url){
-    if(url)tx.photoURL=url;
-    txns.unshift(tx);
-    save();
-    cloudWriteTx(tx);
-    if(btn){btn.disabled=false;btn.textContent="Log Transaction";}
-    clearFormInputs();
-  }
+  txns.unshift(tx);
+  save();
+  cloudWriteTx(tx);
+  clearFormInputs();
   if(blob){
-    if(btn){btn.disabled=true;btn.textContent="Uploading photo\u2026";}
+    setSyncLabel("Uploading photo\u2026");
     uploadTxPhoto(tx.id,blob,function(url){
       if(!url){
+        setSyncLabel("Sale saved \u00b7 photo failed");
         var err=el("err-msg");
-        if(err){err.textContent="Logged the sale, but the photo didn’t sync. Enable Firebase Storage if this keeps happening.";err.style.display="block";}
+        if(err){err.textContent="Sale is in History. Photo didn’t upload — enable Firebase Storage, then add the photo from History.";err.style.display="block";}
+        return;
       }
-      finish(url);
+      attachPhotoUrl(tx.id,url);
     });
-  }else{
-    finish(null);
   }
 }
 
@@ -747,48 +742,80 @@ function onPhotoPicked(e){
   var file=e.target.files&&e.target.files[0];
   e.target.value="";
   if(!file)return;
-  compressImage(file,function(blob){
-    if(!blob)return;
-    if(photoAttachId){
-      var id=photoAttachId;
-      photoAttachId=null;
-      uploadAndAttach(id,blob);
-      return;
-    }
-    pendingPhoto=blob;
-    var img=el("photo-preview-img");
-    var box=el("photo-preview");
-    if(img)img.src=URL.createObjectURL(blob);
-    if(box)box.classList.add("show");
-  });
+  var attachId=photoAttachId;
+  photoAttachId=null;
+  if(attachId){
+    setSyncLabel("Uploading photo\u2026");
+    compressImage(file,function(blob){uploadAndAttach(attachId,blob||file)});
+    return;
+  }
+  pendingPhoto=file;
+  var img=el("photo-preview-img");
+  var box=el("photo-preview");
+  try{if(img)img.src=URL.createObjectURL(file)}catch(err){}
+  if(box)box.classList.add("show");
+  setTimeout(function(){
+    compressImage(file,function(blob){
+      if(blob)pendingPhoto=blob;
+      if(img&&blob){
+        try{img.src=URL.createObjectURL(blob)}catch(err){}
+      }
+    });
+  },50);
 }
 function compressImage(file,cb){
-  var img=new Image();
-  var url=URL.createObjectURL(file);
-  img.onload=function(){
-    var max=1600,w=img.width,h=img.height;
-    if(w>max||h>max){
-      if(w>h){h=Math.round(h*max/w);w=max;}
-      else{w=Math.round(w*max/h);h=max;}
-    }
-    var canvas=document.createElement("canvas");
-    canvas.width=w;canvas.height=h;
-    canvas.getContext("2d").drawImage(img,0,0,w,h);
-    URL.revokeObjectURL(url);
-    if(canvas.toBlob){
-      canvas.toBlob(function(blob){cb(blob||file)},"image/jpeg",0.72);
-    }else{cb(file);}
+  var done=false;
+  function once(blob){
+    if(done)return;
+    done=true;
+    cb(blob||file);
+  }
+  setTimeout(function(){once(file)},5000);
+  var reader=new FileReader();
+  reader.onload=function(){
+    var img=new Image();
+    img.onload=function(){
+      try{
+        var max=1280,w=img.width,h=img.height;
+        if(!w||!h){once(file);return;}
+        if(w>max||h>max){
+          if(w>h){h=Math.round(h*max/w);w=max;}
+          else{w=Math.round(w*max/h);h=max;}
+        }
+        var canvas=document.createElement("canvas");
+        canvas.width=w;canvas.height=h;
+        canvas.getContext("2d").drawImage(img,0,0,w,h);
+        if(canvas.toBlob){
+          canvas.toBlob(function(blob){once(blob||file)},"image/jpeg",0.7);
+        }else{once(file);}
+      }catch(err){once(file);}
+    };
+    img.onerror=function(){once(file)};
+    img.src=reader.result;
   };
-  img.onerror=function(){URL.revokeObjectURL(url);cb(file)};
-  img.src=url;
+  reader.onerror=function(){once(file)};
+  try{reader.readAsDataURL(file)}catch(err){once(file)}
 }
 function photoPath(id){return "groups/eclipse/txns/"+String(id)+"/photo.jpg"}
 function uploadTxPhoto(id,blob,cb){
-  if(!blob||typeof firebase==="undefined"||!firebase.storage){cb(null);return;}
+  var called=false;
+  function once(url){if(called)return;called=true;cb(url)}
+  if(!blob||typeof firebase==="undefined"||!firebase.storage){once(null);return;}
+  setTimeout(function(){once(null)},45000);
   try{
     var ref=firebase.storage().ref(photoPath(id));
-    ref.put(blob).then(function(){return ref.getDownloadURL()}).then(function(url){cb(url)}).catch(function(){cb(null)});
-  }catch(e){cb(null);}
+    ref.put(blob,{contentType:"image/jpeg"}).then(function(){return ref.getDownloadURL()}).then(function(url){once(url||null)}).catch(function(){once(null)});
+  }catch(e){once(null);}
+}
+function attachPhotoUrl(id,url){
+  var tx=null;
+  txns.forEach(function(t){if(sameId(t.id,id))tx=t});
+  if(!tx)return;
+  tx.photoURL=url;
+  save();
+  cloudWriteTx(tx);
+  refreshOpenViews();
+  setSyncLabel("Live \u00b7 shared",true);
 }
 function uploadAndAttach(id,blob){
   uploadTxPhoto(id,blob,function(url){
