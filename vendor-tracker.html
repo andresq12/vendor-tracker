@@ -563,7 +563,7 @@ function doSubmit(){
       if(!url){
         setSyncLabel("Sale saved \u00b7 photo failed");
         var err=el("err-msg");
-        if(err){err.textContent="Sale is in History. Photo didn’t upload — enable Firebase Storage, then add the photo from History.";err.style.display="block";}
+        if(err){err.textContent="Sale is in History. Photo didn’t upload"+(lastPhotoError?": "+lastPhotoError:"")+". In Firebase, open Storage → Get started, then add the photo from History.";err.style.display="block";}
         return;
       }
       attachPhotoUrl(tx.id,url);
@@ -797,15 +797,53 @@ function compressImage(file,cb){
   try{reader.readAsDataURL(file)}catch(err){once(file)}
 }
 function photoPath(id){return "groups/eclipse/txns/"+String(id)+"/photo.jpg"}
+var lastPhotoError="";
+function storageBuckets(){
+  var b=((firebase.app().options||{}).storageBucket)||(window.FIREBASE_CONFIG&&window.FIREBASE_CONFIG.storageBucket)||"";
+  var list=[];
+  if(b)list.push(b);
+  if(b.indexOf("firebasestorage.app")!==-1)list.push(b.replace("firebasestorage.app","appspot.com"));
+  if(list.indexOf("eclipse-vender-tracker.appspot.com")===-1)list.push("eclipse-vender-tracker.appspot.com");
+  return list;
+}
 function uploadTxPhoto(id,blob,cb){
   var called=false;
-  function once(url){if(called)return;called=true;cb(url)}
-  if(!blob||typeof firebase==="undefined"||!firebase.storage){once(null);return;}
-  setTimeout(function(){once(null)},45000);
+  function once(url,err){
+    if(called)return;
+    called=true;
+    if(err)lastPhotoError=String(err);
+    cb(url);
+  }
+  if(!blob||typeof firebase==="undefined"||!firebase.storage){once(null,"Storage SDK missing");return;}
+  setTimeout(function(){once(null,lastPhotoError||"Upload timed out")},45000);
+  function putNow(){
+    var path=photoPath(id);
+    var buckets=storageBuckets();
+    var i=0;
+    function tryNext(){
+      if(i>=buckets.length){once(null,lastPhotoError||"Storage upload failed");return;}
+      var bucket=buckets[i++];
+      var gs=bucket.indexOf("gs://")===0?bucket:"gs://"+bucket;
+      try{
+        var ref=firebase.app().storage(gs).ref(path);
+        ref.put(blob,{contentType:"image/jpeg"}).then(function(){return ref.getDownloadURL()}).then(function(url){
+          once(url||null);
+        }).catch(function(e){
+          lastPhotoError=(e&&(e.code||"")+" "+(e.message||e))||"upload failed";
+          tryNext();
+        });
+      }catch(e){
+        lastPhotoError=String(e&&e.message||e);
+        tryNext();
+      }
+    }
+    tryNext();
+  }
   try{
-    var ref=firebase.storage().ref(photoPath(id));
-    ref.put(blob,{contentType:"image/jpeg"}).then(function(){return ref.getDownloadURL()}).then(function(url){once(url||null)}).catch(function(){once(null)});
-  }catch(e){once(null);}
+    var user=firebase.auth().currentUser;
+    if(user){putNow();return;}
+    firebase.auth().signInAnonymously().then(putNow).catch(function(e){once(null,e&&e.message||"Sign-in failed")});
+  }catch(e){once(null,String(e&&e.message||e));}
 }
 function attachPhotoUrl(id,url){
   var tx=null;
