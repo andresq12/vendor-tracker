@@ -1,6 +1,7 @@
-var CACHE = "vt-pwa-v1";
+var CACHE = "vt-pwa-v2";
 var ASSETS = [
   "./vendor-tracker.html",
+  "./firebase-config.js",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png",

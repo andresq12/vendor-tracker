@@ -143,6 +143,7 @@ input.full{width:100%}
 .install-banner p{font-size:12px;color:var(--text);line-height:1.4;flex:1}
 .install-banner button{flex-shrink:0;background:none;border:none;color:var(--accent);font-size:12px;
   font-weight:700;cursor:pointer;font-family:inherit;padding:4px 0}
+.sync-status{margin:4px 0 0 34px;font-size:11px;color:var(--dim);font-weight:600}
 </style>
 </head>
 <body>
@@ -150,6 +151,7 @@ input.full{width:100%}
   <header>
     <div class="logo-row"><span class="pokeball">●</span><h1>Vendor Tracker</h1></div>
     <p class="subtitle">Pokémon TCG — Sales, Trades & Settlement</p>
+    <p class="sync-status" id="sync-status">This phone only</p>
   </header>
   <div id="install-banner" class="install-banner hidden">
     <p id="install-text"></p>
@@ -232,6 +234,10 @@ input.full{width:100%}
 </div>
 <div id="modal-container"></div>
 
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
 <script>
 var VENDORS=["B","D","R","A"], POOL="pool", ALL=VENDORS.concat([POOL]);
 var LS="vtx-v6";
@@ -251,6 +257,10 @@ function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").
 function load(){try{var d=localStorage.getItem(LS);if(d)txns=JSON.parse(d)}catch(e){}}
 function save(){try{localStorage.setItem(LS,JSON.stringify(txns))}catch(e){}}
 function el(id){return document.getElementById(id)}
+function refreshOpenViews(){
+  if(currentView==="settle")renderSettle();
+  if(currentView==="history")renderHistory();
+}
 
 // Build input fields once
 function buildFields(){
@@ -480,6 +490,7 @@ function doSubmit(){
   if(form.buyout) tx.buyout={vendor:form.buyout.vendor,total:form.buyout.total};
   txns.unshift(tx);
   save();
+  cloudWriteTx(tx);
   clearFormInputs();
 }
 
@@ -733,8 +744,19 @@ function showModal(target){
 function hideModal(){el("modal-container").innerHTML="";}
 function confirmAction(target){
   hideModal();
-  if(target==="all"){txns=[];save();switchView("log");}
-  else{txns=txns.filter(function(t){return t.id!==parseInt(target)});save();expanded=null;renderHistory();}
+  if(target==="all"){
+    txns=[];
+    save();
+    cloudClearAll();
+    switchView("log");
+  }else{
+    var id=parseInt(target);
+    txns=txns.filter(function(t){return t.id!==id});
+    save();
+    cloudDeleteTx(id);
+    expanded=null;
+    renderHistory();
+  }
 }
 
 // ===== EXPORT =====
@@ -791,12 +813,107 @@ function registerSW(){
   navigator.serviceWorker.register("sw.js").catch(function(){});
 }
 
+// ===== LIVE SYNC (Firebase) =====
+var cloudCol=null;
+var uploadingLocal=false;
+
+function firebaseReady(){
+  var c=window.FIREBASE_CONFIG;
+  return !!(c&&c.apiKey&&c.projectId&&typeof firebase!=="undefined");
+}
+
+function setSyncLabel(text,ok){
+  var n=el("sync-status");
+  if(!n)return;
+  n.textContent=text;
+  n.style.color=ok?"var(--green)":"var(--dim)";
+}
+
+function txToCloud(tx){
+  var out={
+    id:tx.id,
+    ts:tx.ts,
+    sold:tx.sold||{},
+    tradeIn:tx.tradeIn||{},
+    fronted:tx.fronted||{},
+    cashIn:tx.cashIn||0,
+    cashOut:tx.cashOut||0,
+    note:tx.note||""
+  };
+  if(tx.buyout&&tx.buyout.vendor){
+    out.buyout={vendor:tx.buyout.vendor,total:tx.buyout.total||0};
+  }
+  return out;
+}
+
+function cloudWriteTx(tx){
+  if(!cloudCol)return;
+  cloudCol.doc(String(tx.id)).set(txToCloud(tx)).catch(function(){});
+}
+
+function cloudDeleteTx(id){
+  if(!cloudCol)return;
+  cloudCol.doc(String(id)).delete().catch(function(){});
+}
+
+function cloudClearAll(){
+  if(!cloudCol)return;
+  cloudCol.get().then(function(snap){
+    var db=firebase.firestore();
+    var batch=db.batch();
+    snap.forEach(function(doc){batch.delete(doc.ref)});
+    return batch.commit();
+  }).catch(function(){});
+}
+
+function startCloud(){
+  if(!firebaseReady()){
+    setSyncLabel("This phone only");
+    return;
+  }
+  setSyncLabel("Connecting\u2026");
+  try{
+    firebase.initializeApp(window.FIREBASE_CONFIG);
+    var db=firebase.firestore();
+    db.enablePersistence({synchronizeTabs:true}).catch(function(){});
+    firebase.auth().signInAnonymously().then(function(){
+      cloudCol=db.collection("groups").doc("eclipse").collection("txns");
+      cloudCol.onSnapshot(function(snap){
+        if(uploadingLocal)return;
+        var incoming=[];
+        snap.forEach(function(doc){incoming.push(doc.data())});
+        incoming.sort(function(a,b){return String(b.ts||"").localeCompare(String(a.ts||""))});
+        if(incoming.length===0&&txns.length>0){
+          uploadingLocal=true;
+          var batch=db.batch();
+          txns.forEach(function(tx){
+            batch.set(cloudCol.doc(String(tx.id)),txToCloud(tx));
+          });
+          batch.commit().then(function(){uploadingLocal=false}).catch(function(){uploadingLocal=false});
+          return;
+        }
+        txns=incoming;
+        save();
+        refreshOpenViews();
+        setSyncLabel("Live \u00b7 shared",true);
+      },function(){
+        setSyncLabel("Sync error");
+      });
+    }).catch(function(){
+      setSyncLabel("This phone only");
+    });
+  }catch(e){
+    setSyncLabel("This phone only");
+  }
+}
+
 // ===== INIT =====
 load();
 buildFields();
 onInput();
 showInstallHint();
 registerSW();
+startCloud();
 </script>
 </body>
 </html>
