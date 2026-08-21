@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Vendors">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0f1623">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<title>Vendor Tracker</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0f1623;--card:#1a2332;--card2:#1e2940;--accent:#f6c531;
+  --red:#e8453c;--green:#22c55e;--pool:#38bdf8;--text:#e8ecf1;
+  --dim:#5e7389;--border:#252f3f;--inputBg:#141d2b;--orange:#f59e0b;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);
+  font-family:-apple-system,'SF Pro Text',Roboto,sans-serif;
+  -webkit-font-smoothing:antialiased;overflow-x:hidden}
+input[type=number]{-moz-appearance:textfield}
+input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+
+.shell{max-width:480px;margin:0 auto;padding-bottom:80px;min-height:100vh}
+header{padding:24px 20px 8px}
+.logo-row{display:flex;align-items:center;gap:10px}
+.pokeball{font-size:24px;color:var(--red);line-height:1}
+h1{font-size:20px;font-weight:700;letter-spacing:-0.02em}
+.subtitle{margin:2px 0 0 34px;font-size:12px;color:var(--dim)}
+nav{display:flex;gap:3px;padding:10px 16px;border-bottom:1px solid var(--border)}
+.tab{flex:1;padding:9px 0;background:none;border:none;color:var(--dim);
+  font-size:13px;font-weight:600;border-radius:8px;cursor:pointer;font-family:inherit}
+.tab.on{background:var(--card);color:var(--accent)}
+main{padding:12px 16px}
+.view{display:none}.view.active{display:block}
+
+.sec-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;margin-top:18px}
+.sec-title{font-size:12px;font-weight:700;color:var(--dim);text-transform:uppercase;letter-spacing:0.05em}
+.sec-right{font-size:13px;font-weight:700;color:var(--accent)}
+.hint{font-size:11px;color:var(--dim);margin:0 0 6px;line-height:1.4}
+
+.field-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px}
+.tag{font-size:12px;font-weight:700;color:var(--accent);background:rgba(246,197,49,0.1);
+  padding:4px 10px;border-radius:6px;min-width:70px;text-align:center;flex-shrink:0;
+  border:2px solid transparent;cursor:default}
+.tag.pool{color:var(--pool);background:rgba(56,189,248,0.1)}
+.tag.sm{font-size:11px;padding:2px 8px;min-width:auto}
+.input-row{display:flex;align-items:center;gap:4px}
+.dollar{font-size:14px;color:var(--dim);font-weight:600}
+input{padding:9px 11px;background:var(--inputBg);border:1px solid var(--border);
+  border-radius:10px;color:var(--text);font-size:16px;outline:none;font-family:inherit}
+input.sm{width:88px;padding:8px 10px}
+input.full{width:100%}
+.cash-row{display:flex;gap:10px;margin-top:4px}
+.cash-col{flex:1}
+.mini-label{font-size:11px;color:var(--dim);display:block;margin-bottom:3px}
+
+/* Toggle buttons */
+.toggle-row{display:flex;gap:4px;margin-bottom:10px}
+.toggle-btn{flex:1;padding:8px 4px;background:var(--inputBg);border:1px solid var(--border);
+  color:var(--dim);font-size:12px;font-weight:600;border-radius:8px;cursor:pointer;font-family:inherit}
+.toggle-btn.on{background:var(--card2);color:var(--accent);border-color:var(--accent)}
+
+/* Buyout vendor picker */
+.picker-row{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.picker-tag{font-size:13px;font-weight:700;padding:8px 16px;border-radius:8px;cursor:pointer;
+  border:2px solid var(--border);background:var(--inputBg);color:var(--dim);font-family:inherit;transition:all .15s}
+.picker-tag.vendor{color:var(--accent)}
+.picker-tag.pool-pick{color:var(--pool)}
+.picker-tag.selected{border-color:var(--green);background:rgba(34,197,94,0.1);color:var(--green)}
+.picker-tag.selected.pool-pick{border-color:var(--pool);background:rgba(56,189,248,0.15);color:var(--pool)}
+
+/* Buyout summary */
+.buyout-summary{background:var(--card2);border:1px solid var(--border);border-radius:10px;
+  padding:12px;margin-top:10px}
+.buyout-line{display:flex;justify-content:space-between;padding:4px 0;font-size:13px}
+.buyout-label{color:var(--dim)}
+.buyout-amt{font-weight:700;font-variant-numeric:tabular-nums}
+
+.preview{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-top:14px}
+.preview-title{font-size:11px;font-weight:700;color:var(--dim);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px}
+.preview-grid{display:grid;grid-template-columns:1fr 80px 80px;align-items:center;padding:3px 0;gap:4px}
+.preview-col-head{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:0.04em;font-weight:600;text-align:right}
+.preview-label{font-size:13px;font-weight:600}
+.preview-val{font-size:13px;font-weight:700;text-align:right;font-variant-numeric:tabular-nums}
+
+.btn{width:100%;padding:14px;background:var(--accent);color:var(--bg);font-size:16px;
+  font-weight:700;border:none;border-radius:12px;cursor:pointer;margin-top:12px;font-family:inherit}
+.btn:disabled{opacity:0.35;cursor:default}
+.btn.secondary{background:var(--card);color:var(--text);border:1px solid var(--border);font-size:14px;padding:11px}
+.btn.danger{background:none;border:1px solid var(--red);color:var(--red);font-size:13px;padding:8px}
+.err{font-size:12px;color:var(--red);text-align:center;margin-top:6px}
+
+.settle-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:12px}
+.settle-header{font-size:11px;font-weight:700;color:var(--dim);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px}
+.settle-row{display:flex;justify-content:space-between;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--border)}
+.settle-row:last-child{border-bottom:none}
+.settle-who{display:flex;flex-direction:column;gap:2px}
+.settle-amt{font-size:18px;font-weight:800;font-variant-numeric:tabular-nums;text-align:right}
+.settle-detail{font-size:10px;color:var(--dim);margin-top:2px;line-height:1.3}
+.settle-action{background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:6px;font-size:13px;line-height:1.5}
+.settle-action .arrow{color:var(--accent);font-weight:700}
+.settle-big{font-size:28px;font-weight:800;color:var(--accent);font-variant-numeric:tabular-nums;text-align:center;margin:4px 0}
+.settle-sub{font-size:12px;color:var(--dim);text-align:center}
+
+.empty{text-align:center;color:var(--dim);padding:40px 0;font-size:14px}
+.tx-card{background:var(--card);border:1px solid var(--border);border-radius:12px;margin-bottom:8px;overflow:hidden}
+.tx-top{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;cursor:pointer}
+.tx-type{font-size:13px;font-weight:700;margin-right:6px}
+.tx-date{font-size:11px;color:var(--dim)}
+.tx-cash{font-size:16px;font-weight:800;color:var(--accent)}
+.tx-note{font-size:11px;color:var(--dim);font-style:italic;padding:0 14px 8px}
+.tx-detail{border-top:1px solid var(--border);padding:10px 14px 12px}
+.tx-line{display:flex;justify-content:space-between;align-items:center;padding:4px 0}
+.tx-line-right{text-align:right;font-size:12px}
+.export-btn{width:100%;padding:10px;background:var(--card);border:1px solid var(--border);
+  color:var(--text);font-size:13px;font-weight:600;border-radius:10px;cursor:pointer;font-family:inherit;margin-top:12px}
+
+.modal-bg{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);
+  display:flex;align-items:center;justify-content:center;z-index:100;padding:20px}
+.modal{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:24px;
+  max-width:340px;width:100%;text-align:center}
+.modal h3{font-size:16px;margin-bottom:8px}
+.modal p{font-size:13px;color:var(--dim);margin-bottom:16px;line-height:1.4}
+.modal-btns{display:flex;gap:8px}
+.modal-btns button{flex:1;padding:12px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;border:none;font-family:inherit}
+.modal-btns .cancel{background:var(--inputBg);color:var(--text);border:1px solid var(--border)}
+.modal-btns .confirm{background:var(--red);color:#fff}
+.modal-btns .ok{background:var(--pool);color:#0f1623}
+.modal-btns .vendor-ok{background:var(--accent);color:var(--bg)}
+.modal-btns.stack{flex-direction:column}
+.modal-btns.stack button{width:100%}
+
+.hidden{display:none!important}
+.fronted-section{display:none}.fronted-section.show{display:block}
+
+.install-banner{margin:10px 16px 0;padding:12px 14px;background:var(--card);border:1px solid var(--border);
+  border-radius:12px;display:flex;gap:10px;align-items:flex-start}
+.install-banner p{font-size:12px;color:var(--text);line-height:1.4;flex:1}
+.install-banner button{flex-shrink:0;background:none;border:none;color:var(--accent);font-size:12px;
+  font-weight:700;cursor:pointer;font-family:inherit;padding:4px 0}
+</style>
+</head>
+<body>
+<div class="shell">
+  <header>
+    <div class="logo-row"><span class="pokeball">●</span><h1>Vendor Tracker</h1></div>
+    <p class="subtitle">Pokémon TCG — Sales, Trades & Settlement</p>
+  </header>
+  <div id="install-banner" class="install-banner hidden">
+    <p id="install-text"></p>
+    <button type="button" onclick="dismissInstall()">Got it</button>
+  </div>
+  <nav>
+    <button class="tab on" id="tab-log" onclick="switchView('log')">Log</button>
+    <button class="tab" id="tab-settle" onclick="switchView('settle')">Settle Up</button>
+    <button class="tab" id="tab-history" onclick="switchView('history')">History</button>
+  </nav>
+  <main>
+    <!-- ===== LOG VIEW ===== -->
+    <div class="view active" id="view-log">
+      <div class="sec-head"><span class="sec-title">Cards Sold to Customer</span>
+        <span class="sec-right" id="sold-total">$0.00</span></div>
+      <p class="hint">Which vendor's cards went to the customer?</p>
+      <div id="sold-fields"></div>
+
+      <div class="sec-head"><span class="sec-title">Trade-In Cards Received</span>
+        <span class="sec-right" id="trade-total">$0.00</span></div>
+      <p class="hint">How are the trade-in cards handled?</p>
+
+      <div class="toggle-row">
+        <button class="toggle-btn on" id="tog-split" onclick="setTradeMode('split')">Split Manually</button>
+        <button class="toggle-btn" id="tog-buyout" onclick="setTradeMode('buyout')">Vendor Buyout</button>
+      </div>
+
+      <!-- Split mode: assign trade-ins per vendor -->
+      <div id="trade-split">
+        <div id="trade-fields"></div>
+      </div>
+
+      <!-- Buyout mode: total value + pick vendor -->
+      <div id="trade-buyout" class="hidden">
+        <p class="hint">Total trade-in card value:</p>
+        <div class="field-row">
+          <span class="tag">Total</span>
+          <div class="input-row"><span class="dollar">$</span>
+          <input type="number" inputmode="decimal" placeholder="0" class="sm" id="inp-buyout-total" oninput="onInput()">
+          </div>
+        </div>
+        <p class="hint" style="margin-top:10px">Who's buying out and taking all the cards?</p>
+        <div class="picker-row" id="buyout-picker"></div>
+        <div id="buyout-summary-area"></div>
+      </div>
+
+      <div class="sec-head"><span class="sec-title">Cash</span>
+        <span class="sec-right" id="cash-hint"></span></div>
+      <p class="hint" id="change-nudge">If the customer needs change (or cash back), enter it on the right — even if it came from someone's personal wallet, not Eclipse.</p>
+      <div class="cash-row">
+        <div class="cash-col"><label class="mini-label">Customer Pays Us</label>
+          <div class="input-row"><span class="dollar">$</span>
+          <input type="number" inputmode="decimal" placeholder="0" id="inp-cashIn" oninput="onInput()"></div>
+        </div>
+        <div class="cash-col"><label class="mini-label">Change / Cash We Gave Them</label>
+          <div class="input-row"><span class="dollar">$</span>
+          <input type="number" inputmode="decimal" placeholder="0" id="inp-cashOut" oninput="onInput()"></div>
+        </div>
+      </div>
+
+      <div class="fronted-section" id="fronted-section">
+        <div class="sec-head"><span class="sec-title">Who Provided That Cash?</span>
+          <span class="sec-right" id="fronted-total"></span></div>
+        <p class="hint">Use a vendor if they pulled it from their own wallet. Use Pool only if it came from Eclipse cash. Split across people if needed.</p>
+        <div id="fronted-fields"></div>
+      </div>
+
+      <input class="full" type="text" placeholder="Note (optional)" id="inp-note" style="margin-top:14px">
+
+      <div id="preview-area"></div>
+      <button class="btn" id="submit-btn" onclick="doSubmit()" disabled>Log Transaction</button>
+      <p class="err" id="err-msg" style="display:none"></p>
+    </div>
+
+    <!-- ===== SETTLE VIEW ===== -->
+    <div class="view" id="view-settle"></div>
+    <!-- ===== HISTORY VIEW ===== -->
+    <div class="view" id="view-history"></div>
+  </main>
+</div>
+<div id="modal-container"></div>
+
+<script>
+var VENDORS=["B","D","R","A"], POOL="pool", ALL=VENDORS.concat([POOL]);
+var LS="vtx-v6";
+var txns=[];
+var currentView="log";
+var expanded=null;
+var tradeMode="split"; // "split" or "buyout"
+var buyoutVendor=null;
+var BUYOUT_SHARE=0.5; // handoff example: vendor sold ~53% — suggest they buy out
+var buyoutPromptTimer=null;
+var buyoutPromptState="idle"; // idle | shown | dismissed | accepted
+
+function pn(v){var x=parseFloat(v);return isNaN(x)?0:x}
+function fm(a){return a<0?"-$"+Math.abs(a).toFixed(2):"$"+a.toFixed(2)}
+function lbl(k){return k===POOL?"Pool":"Vendor "+k}
+function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
+function load(){try{var d=localStorage.getItem(LS);if(d)txns=JSON.parse(d)}catch(e){}}
+function save(){try{localStorage.setItem(LS,JSON.stringify(txns))}catch(e){}}
+function el(id){return document.getElementById(id)}
+
+// Build input fields once
+function buildFields(){
+  ["sold","trade","fronted"].forEach(function(sec){
+    var prefix=sec==="trade"?"tradeIn":sec;
+    var c=el(sec+"-fields");
+    var html="";
+    ALL.forEach(function(k){
+      var cls=k===POOL?"tag pool":"tag";
+      html+='<div class="field-row"><span class="'+cls+'">'+lbl(k)+'</span>'+
+        '<div class="input-row"><span class="dollar">$</span>'+
+        '<input type="number" inputmode="decimal" placeholder="0" class="sm" '+
+        'id="inp-'+prefix+'-'+k+'" oninput="onInput()"></div></div>';
+    });
+    c.innerHTML=html;
+  });
+
+  // Build buyout picker buttons
+  var picker=el("buyout-picker");
+  var ph="";
+  ALL.forEach(function(k){
+    var cls=k===POOL?"picker-tag pool-pick":"picker-tag vendor";
+    ph+='<button class="'+cls+'" id="pick-'+k+'" onclick="pickBuyout(\''+k+'\')">'+lbl(k)+'</button>';
+  });
+  picker.innerHTML=ph;
+}
+
+function setTradeMode(mode){
+  tradeMode=mode;
+  el("tog-split").classList.toggle("on",mode==="split");
+  el("tog-buyout").classList.toggle("on",mode==="buyout");
+  el("trade-split").classList.toggle("hidden",mode!=="split");
+  el("trade-buyout").classList.toggle("hidden",mode!=="buyout");
+  if(mode==="split"){buyoutVendor=null;updatePickerUI();}
+  onInput();
+}
+
+function pickBuyout(k){
+  buyoutVendor=buyoutVendor===k?null:k;
+  updatePickerUI();
+  onInput();
+}
+
+function updatePickerUI(){
+  ALL.forEach(function(k){
+    var btn=el("pick-"+k);
+    if(!btn)return;
+    btn.classList.toggle("selected",buyoutVendor===k);
+  });
+}
+
+// Read form values from DOM
+function readForm(){
+  var form={sold:{},tradeIn:{},fronted:{},cashIn:0,cashOut:0,note:"",buyout:null};
+  ALL.forEach(function(k){
+    form.sold[k]=pn((el("inp-sold-"+k)||{}).value);
+    form.fronted[k]=pn((el("inp-fronted-"+k)||{}).value);
+  });
+
+  if(tradeMode==="split"){
+    ALL.forEach(function(k){
+      form.tradeIn[k]=pn((el("inp-tradeIn-"+k)||{}).value);
+    });
+  }else{
+    // Buyout mode: all trade-in goes to selected vendor
+    var total=pn((el("inp-buyout-total")||{}).value);
+    ALL.forEach(function(k){form.tradeIn[k]=0});
+    if(buyoutVendor&&total>0){
+      form.tradeIn[buyoutVendor]=total;
+      form.buyout={vendor:buyoutVendor,total:total};
+    }
+  }
+
+  form.cashIn=pn((el("inp-cashIn")||{}).value);
+  form.cashOut=pn((el("inp-cashOut")||{}).value);
+  form.note=(el("inp-note")||{}).value||"";
+  return form;
+}
+
+function derive(form){
+  var ts=0,tt=0,tf=0;
+  ALL.forEach(function(k){ts+=form.sold[k];tt+=form.tradeIn[k];tf+=form.fronted[k]});
+  var owe=ts-tt;
+  var net=form.cashIn-form.cashOut;
+  var cb=Math.abs(net-owe)<0.01||(ts===0&&tt===0);
+  var fb=form.cashOut===0||Math.abs(tf-form.cashOut)<0.01;
+  var has=ts>0||tt>0;
+  return{totalSold:ts,totalTradeIn:tt,cashIn:form.cashIn,cashOut:form.cashOut,
+    totalFronted:tf,customerOwes:owe,actualNet:net,
+    cashBalanced:cb,frontedBalanced:fb,hasSomething:has,
+    isValid:has&&cb&&fb};
+}
+
+// Update computed displays
+function onInput(){
+  var form=readForm();
+  var d=derive(form);
+
+  el("sold-total").textContent=fm(d.totalSold);
+  el("trade-total").textContent=fm(d.totalTradeIn);
+
+  // Cash hint
+  var ch=el("cash-hint");
+  if(d.hasSomething){
+    if(d.customerOwes>0) ch.textContent="Customer owes "+fm(d.customerOwes);
+    else if(d.customerOwes<0) ch.textContent="We owe customer "+fm(-d.customerOwes);
+    else ch.textContent="Even trade";
+    ch.style.color=d.cashBalanced?"var(--green)":"var(--red)";
+  }else{ch.textContent="";}
+
+  // Fronted section
+  var fs=el("fronted-section");
+  if(d.cashOut>0){
+    fs.classList.add("show");
+    var ft=el("fronted-total");
+    ft.textContent=fm(d.totalFronted)+" of "+fm(d.cashOut);
+    ft.style.color=d.frontedBalanced?"var(--green)":"var(--red)";
+  }else{fs.classList.remove("show");}
+
+  // Buyout summary
+  if(tradeMode==="buyout"){
+    var bsa=el("buyout-summary-area");
+    if(buyoutVendor&&d.totalTradeIn>0&&d.totalSold>0){
+      var bh='<div class="buyout-summary">';
+      bh+='<div style="font-size:12px;font-weight:700;color:var(--green);margin-bottom:8px">'+
+        lbl(buyoutVendor)+' takes all '+fm(d.totalTradeIn)+' in cards and pays:</div>';
+      ALL.forEach(function(k){
+        if(k===buyoutVendor)return;
+        var owed=form.sold[k];
+        if(owed<=0)return;
+        bh+='<div class="buyout-line"><span class="buyout-label">'+lbl(k)+'</span>'+
+          '<span class="buyout-amt" style="color:var(--green)">'+fm(owed)+'</span></div>';
+      });
+      var selfSold=form.sold[buyoutVendor]||0;
+      if(selfSold>0){
+        bh+='<div class="buyout-line" style="border-top:1px solid var(--border);padding-top:6px;margin-top:4px">'+
+          '<span class="buyout-label">'+lbl(buyoutVendor)+'\'s own card value</span>'+
+          '<span class="buyout-amt" style="color:var(--dim)">'+fm(selfSold)+'</span></div>';
+      }
+      var netForBuyer=d.totalTradeIn-selfSold;
+      var payOut=0;ALL.forEach(function(k){if(k!==buyoutVendor)payOut+=form.sold[k]});
+      bh+='<div class="buyout-line" style="border-top:1px solid var(--border);padding-top:6px;margin-top:4px">'+
+        '<span class="buyout-label" style="font-weight:700;color:var(--text)">'+lbl(buyoutVendor)+' pays out</span>'+
+        '<span class="buyout-amt" style="color:var(--orange);font-size:15px">'+fm(payOut)+'</span></div>';
+      bh+='<div style="font-size:10px;color:var(--dim);margin-top:6px">Gets '+fm(d.totalTradeIn)+' in cards, keeps '+fm(selfSold)+' worth as their sale</div>';
+      bh+='</div>';
+      bsa.innerHTML=bh;
+    }else{bsa.innerHTML="";}
+  }
+
+  // Preview
+  var pa=el("preview-area");
+  if(d.isValid){
+    var html='<div class="preview"><p class="preview-title">Payout from this transaction</p>'+
+      '<div class="preview-grid"><span class="preview-col-head"></span>'+
+      '<span class="preview-col-head">Cash Owed</span>'+
+      '<span class="preview-col-head">Cards Got</span></div>';
+    ALL.forEach(function(k){
+      var cashOwed=form.sold[k]+form.fronted[k];
+      var cardsGot=form.tradeIn[k];
+      if(cashOwed===0&&cardsGot===0)return;
+      var netCash=cashOwed-cardsGot;
+      html+='<div class="preview-grid">'+
+        '<span class="preview-label">'+lbl(k)+'</span>'+
+        '<span class="preview-val" style="color:'+(cashOwed>0?"var(--green)":"var(--dim)")+'">'+(cashOwed>0?fm(cashOwed):"\u2014")+'</span>'+
+        '<span class="preview-val" style="color:'+(cardsGot>0?"var(--pool)":"var(--dim)")+'">'+(cardsGot>0?fm(cardsGot):"\u2014")+'</span></div>';
+      if(form.fronted[k]>0){
+        var bits=[];
+        if(form.sold[k]>0) bits.push(fm(form.sold[k])+" sale");
+        bits.push(fm(form.fronted[k])+" change they provided");
+        html+='<div style="text-align:right;font-size:10px;color:var(--dim);padding:0 0 2px">'+bits.join(" + ")+'</div>';
+      }
+      if(cardsGot>0&&cashOwed>0){
+        html+='<div style="text-align:right;font-size:10px;color:'+(netCash>=0?"var(--dim)":"var(--orange)")+';padding:0 0 2px">Net cash: '+fm(netCash)+(netCash<0?" (owes back)":"")+'</div>';
+      }
+    });
+    html+='</div>';
+    pa.innerHTML=html;
+  }else{pa.innerHTML="";}
+
+  el("submit-btn").disabled=!d.isValid;
+
+  var err=el("err-msg");
+  if(d.hasSomething&&!d.cashBalanced){
+    err.textContent="Cash doesn't balance \u2014 customer "+(d.customerOwes>0?"owes":"is owed")+" "+fm(Math.abs(d.customerOwes))+" but net cash is "+fm(d.actualNet);
+    err.style.display="block";
+  }else if(d.cashOut>0&&!d.frontedBalanced){
+    err.textContent="Say who provided the "+fm(d.cashOut)+" given to the customer \u2014 vendor wallets and/or Pool must add up to that amount";
+    err.style.display="block";
+  }else{err.style.display="none";}
+
+  scheduleBuyoutPrompt(form,d);
+}
+
+function clearFormInputs(){
+  ALL.forEach(function(k){
+    el("inp-sold-"+k).value="";
+    el("inp-tradeIn-"+k).value="";
+    el("inp-fronted-"+k).value="";
+  });
+  el("inp-cashIn").value="";
+  el("inp-cashOut").value="";
+  el("inp-note").value="";
+  el("inp-buyout-total").value="";
+  buyoutVendor=null;
+  buyoutPromptState="idle";
+  if(buyoutPromptTimer){clearTimeout(buyoutPromptTimer);buyoutPromptTimer=null;}
+  updatePickerUI();
+  setTradeMode("split");
+  onInput();
+}
+
+function doSubmit(){
+  var form=readForm();
+  var d=derive(form);
+  if(!d.isValid)return;
+  var tx={
+    id:Date.now(),ts:new Date().toISOString(),
+    sold:{},tradeIn:{},fronted:{},
+    cashIn:form.cashIn,cashOut:form.cashOut,note:form.note
+  };
+  ALL.forEach(function(k){
+    tx.sold[k]=form.sold[k];
+    tx.tradeIn[k]=form.tradeIn[k];
+    tx.fronted[k]=form.fronted[k];
+  });
+  if(form.buyout) tx.buyout={vendor:form.buyout.vendor,total:form.buyout.total};
+  txns.unshift(tx);
+  save();
+  clearFormInputs();
+}
+
+// ===== SETTLEMENT =====
+function calcSettlement(){
+  var ent={};ALL.forEach(function(k){ent[k]={sold:0,fronted:0,tradeIn:0}});
+  var totalCashIn=0,totalCashOut=0,totalFronted=0;
+  txns.forEach(function(tx){
+    totalCashIn+=tx.cashIn||0;
+    totalCashOut+=tx.cashOut||0;
+    ALL.forEach(function(k){
+      ent[k].sold+=tx.sold[k]||0;
+      ent[k].fronted+=tx.fronted[k]||0;
+      ent[k].tradeIn+=tx.tradeIn[k]||0;
+      totalFronted+=tx.fronted[k]||0;
+    });
+  });
+  // Change given from a vendor/pool wallet never left the till — that cash is
+  // still on hand, and those people get reimbursed below. Only unassigned
+  // cash-out (legacy/bad data) is treated as taken from the pile.
+  var cashOnHand=totalCashIn-totalCashOut+totalFronted;
+  var nets={};
+  ALL.forEach(function(k){
+    nets[k]={sold:ent[k].sold,fronted:ent[k].fronted,tradeIn:ent[k].tradeIn,
+      netCash:ent[k].sold+ent[k].fronted-ent[k].tradeIn};
+  });
+  var owedCash=[],oweBack=[];
+  ALL.forEach(function(k){
+    if(nets[k].netCash>0.005)owedCash.push({key:k,amt:nets[k].netCash});
+    else if(nets[k].netCash<-0.005)oweBack.push({key:k,amt:-nets[k].netCash});
+  });
+  var steps=[];
+  oweBack.forEach(function(o){
+    steps.push({from:o.key,to:"cash pile",amt:o.amt,
+      reason:lbl(o.key)+" received "+fm(nets[o.key].tradeIn)+" in trade-ins but only sold "+fm(nets[o.key].sold)+" \u2014 owes the difference"});
+  });
+  owedCash.forEach(function(o){
+    var parts=[];
+    if(nets[o.key].sold>0)parts.push(fm(nets[o.key].sold)+" card sales");
+    if(nets[o.key].fronted>0)parts.push(fm(nets[o.key].fronted)+" for change they provided");
+    var reason=parts.join(" + ");
+    if(nets[o.key].tradeIn>0) reason+=(reason?" \u2212 ":"")+fm(nets[o.key].tradeIn)+" trade-ins received";
+    steps.push({from:"cash pile",to:o.key,amt:o.amt,reason:reason});
+  });
+  var totalOwed=owedCash.reduce(function(s,o){return s+o.amt},0);
+  var totalBack=oweBack.reduce(function(s,o){return s+o.amt},0);
+  var balanced=Math.abs((cashOnHand+totalBack)-totalOwed)<0.01;
+  return{cashOnHand:cashOnHand,totalCashIn:totalCashIn,totalCashOut:totalCashOut,
+    totalFronted:totalFronted,nets:nets,steps:steps,balanced:balanced};
+}
+
+function renderSettle(){
+  var c=el("view-settle");
+  if(txns.length===0){c.innerHTML='<p class="empty">Log some transactions first, then come here to settle up.</p>';return;}
+  var s=calcSettlement();
+  var sub=fm(s.totalCashIn)+' collected from customers';
+  if(s.totalFronted>0.005){
+    sub+=' \u00b7 '+fm(s.totalFronted)+' change came from personal/pool wallets (still in the till)';
+  }else if(s.totalCashOut>0.005){
+    sub+=' \u2014 '+fm(s.totalCashOut)+' given back';
+  }
+  var h='<div class="settle-card" style="text-align:center">'+
+    '<div class="settle-header">Cash on Hand</div>'+
+    '<div class="settle-big">'+fm(s.cashOnHand)+'</div>'+
+    '<div class="settle-sub">'+sub+'</div></div>';
+
+  h+='<div class="settle-card"><div class="settle-header">What Everyone Is Owed (Net)</div>'+
+    '<p class="hint" style="margin-bottom:10px">Card sales + reimbursements \u2212 trade-in cards received</p>';
+  ALL.forEach(function(k){
+    var n=s.nets[k];
+    var color=n.netCash>0.005?"var(--green)":n.netCash<-0.005?"var(--orange)":"var(--dim)";
+    h+='<div class="settle-row"><div class="settle-who">'+
+      '<span class="tag '+(k===POOL?"pool":"")+'">'+lbl(k)+'</span><span class="settle-detail">';
+    var parts=[];
+    if(n.sold>0)parts.push(fm(n.sold)+" sold");
+    if(n.fronted>0)parts.push(fm(n.fronted)+" change provided");
+    if(n.tradeIn>0)parts.push(fm(n.tradeIn)+" in trade-ins");
+    h+=parts.join(" \u00b7 ")+'</span></div>'+
+      '<span class="settle-amt" style="color:'+color+'">'+fm(n.netCash)+'</span></div>';
+  });
+  h+='</div>';
+
+  if(s.steps.length>0){
+    h+='<div class="settle-card"><div class="settle-header">\ud83d\udcb0 Payout Instructions</div>';
+    s.steps.forEach(function(step){
+      var fl=step.from==="cash pile"?"\ud83d\udcb5 Cash Pile":lbl(step.from);
+      var tl=step.to==="cash pile"?"\ud83d\udcb5 Cash Pile":lbl(step.to);
+      h+='<div class="settle-action"><div style="margin-bottom:4px">'+
+        '<strong>'+fl+'</strong> <span class="arrow">\u2192</span> <strong>'+tl+'</strong></div>'+
+        '<div style="font-size:20px;font-weight:800;color:var(--green);margin:2px 0">'+fm(step.amt)+'</div>'+
+        '<div style="font-size:11px;color:var(--dim)">'+step.reason+'</div></div>';
+    });
+    if(!s.balanced) h+='<p class="err" style="margin-top:8px">\u26a0\ufe0f Numbers don\'t balance \u2014 check history for errors</p>';
+    h+='</div>';
+  }
+
+  h+='<button class="export-btn" onclick="exportCSV()">Export All to CSV</button>';
+  h+='<button class="btn danger" style="margin-top:8px" onclick="showModal(\'all\')">Clear All & Start Fresh</button>';
+  c.innerHTML=h;
+}
+
+// ===== HISTORY =====
+function txType(tx){
+  var hs=ALL.some(function(k){return(tx.sold[k]||0)>0});
+  var ht=ALL.some(function(k){return(tx.tradeIn[k]||0)>0});
+  if(tx.buyout)return"Buyout"+(hs?" + Sale":"");
+  return hs&&ht?"Trade + Sale":ht?"Trade-in":"Sale";
+}
+
+function renderHistory(){
+  var c=el("view-history");
+  if(txns.length===0){c.innerHTML='<p class="empty">No transactions yet.</p>';return;}
+  var h='<p class="hint" style="margin-bottom:10px">'+txns.length+' transaction'+(txns.length!==1?"s":"")+" \u2014 tap to expand</p>";
+  txns.forEach(function(tx){
+    var open=expanded===tx.id;
+    h+='<div class="tx-card"><div class="tx-top" onclick="toggleTx('+tx.id+')">'+
+      '<div><span class="tx-type">'+txType(tx)+'</span>'+
+      '<span class="tx-date">'+new Date(tx.ts).toLocaleDateString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})+'</span></div>'+
+      '<span class="tx-cash">'+fm(tx.cashIn)+'</span></div>';
+    if(tx.note) h+='<p class="tx-note">'+esc(tx.note)+'</p>';
+    if(open){
+      h+='<div class="tx-detail">';
+      if(tx.buyout){
+        h+='<div style="font-size:12px;color:var(--green);font-weight:700;margin-bottom:6px;padding:4px 0">'+
+          lbl(tx.buyout.vendor)+' bought out \u2014 took '+fm(tx.buyout.total)+' in trade-in cards</div>';
+      }
+      ALL.forEach(function(k){
+        var cs=tx.sold[k]||0,re=tx.fronted[k]||0,tr=tx.tradeIn[k]||0;
+        var cashOwed=cs+re;
+        if(cashOwed===0&&tr===0)return;
+        h+='<div class="tx-line"><span class="tag sm '+(k===POOL?"pool":"")+'">'+lbl(k)+'</span><div class="tx-line-right">';
+        if(cashOwed>0){
+          h+='<div style="color:var(--green);font-weight:700">'+fm(cashOwed)+' cash owed';
+          if(cs>0&&re>0) h+=' <span style="color:var(--dim);font-weight:400;font-size:10px">('+fm(cs)+' sale + '+fm(re)+' change they provided)</span>';
+          else if(re>0&&cs===0) h+=' <span style="color:var(--dim);font-weight:400;font-size:10px">(change they provided)</span>';
+          h+='</div>';
+        }
+        if(tr>0) h+='<div style="color:var(--pool)">'+fm(tr)+' in trade-in cards</div>';
+        if(tr>0&&cashOwed>0){
+          var nc=cashOwed-tr;
+          h+='<div style="font-size:11px;color:'+(nc>=0?"var(--green)":"var(--orange)")+';margin-top:2px">Net: '+fm(nc)+(nc<0?" (owes back)":"")+'</div>';
+        }
+        h+='</div></div>';
+      });
+      h+='<button class="btn danger" style="margin-top:8px" onclick="showModal('+tx.id+')">Delete</button></div>';
+    }
+    h+='</div>';
+  });
+  h+='<button class="export-btn" onclick="exportCSV()">Export CSV</button>';
+  c.innerHTML=h;
+}
+
+function toggleTx(id){expanded=expanded===id?null:id;renderHistory();}
+
+// ===== VIEW SWITCHING =====
+function switchView(v){
+  currentView=v;
+  ["log","settle","history"].forEach(function(x){
+    el("view-"+x).classList.toggle("active",x===v);
+    el("tab-"+x).classList.toggle("on",x===v);
+  });
+  if(v==="settle")renderSettle();
+  if(v==="history")renderHistory();
+}
+
+// ===== BUYOUT SUGGESTION =====
+function leadingVendor(form){
+  var lead=null,amt=0;
+  VENDORS.forEach(function(k){
+    if(form.sold[k]>amt){amt=form.sold[k];lead=k;}
+  });
+  return{key:lead,amt:amt};
+}
+
+function shouldSuggestBuyout(form,d){
+  if(tradeMode!=="split")return false;
+  if(buyoutPromptState==="dismissed"||buyoutPromptState==="accepted"||buyoutPromptState==="shown")return false;
+  if(d.totalSold<0.005||d.totalTradeIn<0.005)return false;
+  var larger=Math.max(d.totalSold,d.totalTradeIn);
+  var smaller=Math.min(d.totalSold,d.totalTradeIn);
+  // Two-way trade: the smaller side is at least 25% of the larger
+  return smaller>=larger*0.25;
+}
+
+function scheduleBuyoutPrompt(form,d){
+  if(buyoutPromptTimer){clearTimeout(buyoutPromptTimer);buyoutPromptTimer=null;}
+  if(!shouldSuggestBuyout(form,d))return;
+  buyoutPromptTimer=setTimeout(function(){
+    var f=readForm();
+    var der=derive(f);
+    if(!shouldSuggestBuyout(f,der))return;
+    showBuyoutPrompt(f,der);
+  },800);
+}
+
+function showBuyoutPrompt(form,d){
+  if(el("modal-container").innerHTML)return;
+  buyoutPromptState="shown";
+  var lead=leadingVendor(form);
+  var share=d.totalSold>0?lead.amt/d.totalSold:0;
+  var showVendor=lead.key&&share>=BUYOUT_SHARE;
+  var poolPays=0;
+  ALL.forEach(function(k){if(k!==POOL)poolPays+=form.sold[k]});
+  var body="Cards going out: "+fm(d.totalSold)+". Cards coming in: "+fm(d.totalTradeIn)+
+    ". For simplicity, Pool can take all the trade-in cards so you don't split them person by person.";
+  if(poolPays>0){
+    body+=" Pool would cover "+fm(poolPays)+" in vendor sales (and keep its own card value).";
+  }
+  if(showVendor){
+    body+=" "+lbl(lead.key)+" sold "+Math.round(share*100)+"% of this trade \u2014 they could buy out instead.";
+  }
+  var btns='<button class="ok" onclick="acceptBuyoutPrompt(\'pool\')">Pool takes the cards</button>';
+  if(showVendor){
+    btns+='<button class="vendor-ok" onclick="acceptBuyoutPrompt(\''+lead.key+'\')">'+lbl(lead.key)+' buys out</button>';
+  }
+  btns+='<button class="cancel" onclick="dismissBuyoutPrompt()">Keep splitting</button>';
+  el("modal-container").innerHTML='<div class="modal-bg" onclick="dismissBuyoutPrompt()">'+
+    '<div class="modal" onclick="event.stopPropagation()">'+
+    '<h3>Use a pool buyout?</h3>'+
+    '<p>'+body+'</p>'+
+    '<div class="modal-btns stack">'+btns+'</div></div></div>';
+}
+
+function acceptBuyoutPrompt(who){
+  var form=readForm();
+  var d=derive(form);
+  buyoutPromptState="accepted";
+  hideModal();
+  el("inp-buyout-total").value=d.totalTradeIn>0?String(d.totalTradeIn):"";
+  buyoutVendor=who;
+  updatePickerUI();
+  setTradeMode("buyout");
+}
+
+function dismissBuyoutPrompt(){
+  buyoutPromptState="dismissed";
+  hideModal();
+}
+
+// ===== MODAL =====
+function showModal(target){
+  el("modal-container").innerHTML='<div class="modal-bg" onclick="hideModal()">'+
+    '<div class="modal" onclick="event.stopPropagation()">'+
+    '<h3>'+(target==="all"?"Clear Everything?":"Delete Transaction?")+'</h3>'+
+    '<p>'+(target==="all"?"Removes all transactions and resets balances. Can\'t undo.":"This transaction will be permanently removed.")+'</p>'+
+    '<div class="modal-btns">'+
+    '<button class="cancel" onclick="hideModal()">Cancel</button>'+
+    '<button class="confirm" onclick="confirmAction(\''+target+'\')">'+
+    (target==="all"?"Clear All":"Delete")+'</button></div></div></div>';
+}
+function hideModal(){el("modal-container").innerHTML="";}
+function confirmAction(target){
+  hideModal();
+  if(target==="all"){txns=[];save();switchView("log");}
+  else{txns=txns.filter(function(t){return t.id!==parseInt(target)});save();expanded=null;renderHistory();}
+}
+
+// ===== EXPORT =====
+function exportCSV(){
+  var csv="Date,Type,Customer Paid,Cash to Customer,Buyout Vendor,Note";
+  ALL.forEach(function(k){csv+=","+lbl(k)+" Sold"});
+  ALL.forEach(function(k){csv+=","+lbl(k)+" Trade-In"});
+  ALL.forEach(function(k){csv+=","+lbl(k)+" Fronted"});
+  ALL.forEach(function(k){csv+=","+lbl(k)+" Net Cash Owed"});
+  csv+="\n";
+  txns.slice().reverse().forEach(function(tx){
+    var dt=new Date(tx.ts).toLocaleDateString();
+    var bv=tx.buyout?lbl(tx.buyout.vendor):"";
+    csv+=dt+","+txType(tx)+","+tx.cashIn+","+tx.cashOut+","+bv+",\""+(tx.note||"").replace(/"/g,'""')+"\"";
+    ALL.forEach(function(k){csv+=","+(tx.sold[k]||0)});
+    ALL.forEach(function(k){csv+=","+(tx.tradeIn[k]||0)});
+    ALL.forEach(function(k){csv+=","+(tx.fronted[k]||0)});
+    ALL.forEach(function(k){csv+=","+((tx.sold[k]||0)+(tx.fronted[k]||0)-(tx.tradeIn[k]||0))});
+    csv+="\n";
+  });
+  var fname="vendor-tracker-"+new Date().toISOString().slice(0,10)+".csv";
+  var blob=new Blob([csv],{type:"text/csv"});
+  var file=new File([blob],fname,{type:"text/csv"});
+  if(navigator.share&&navigator.canShare&&navigator.canShare({files:[file]})){
+    navigator.share({files:[file],title:"Vendor Tracker Export"}).catch(function(){});
+  }else{
+    var a=document.createElement("a");a.href=URL.createObjectURL(blob);
+    a.download=fname;a.click();
+  }
+}
+
+// ===== PWA =====
+function isStandalone(){
+  return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+}
+function dismissInstall(){
+  try{localStorage.setItem("vt-install-dismissed","1")}catch(e){}
+  el("install-banner").classList.add("hidden");
+}
+function showInstallHint(){
+  if(isStandalone())return;
+  try{if(localStorage.getItem("vt-install-dismissed"))return}catch(e){}
+  var ios=/iPhone|iPad|iPod/.test(navigator.userAgent);
+  var t=el("install-text");
+  if(!t)return;
+  t.textContent=ios
+    ?"Add this to your Home Screen: tap Share, then Add to Home Screen."
+    :"Install this like an app: open the browser menu, then Add to Home screen.";
+  el("install-banner").classList.remove("hidden");
+}
+function registerSW(){
+  if(!("serviceWorker" in navigator))return;
+  if(!/^https?:$/.test(location.protocol))return;
+  navigator.serviceWorker.register("sw.js").catch(function(){});
+}
+
+// ===== INIT =====
+load();
+buildFields();
+onInput();
+showInstallHint();
+registerSW();
+</script>
+</body>
+</html>
