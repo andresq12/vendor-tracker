@@ -735,25 +735,28 @@ function showModal(target){
   el("modal-container").innerHTML='<div class="modal-bg" onclick="hideModal()">'+
     '<div class="modal" onclick="event.stopPropagation()">'+
     '<h3>'+(target==="all"?"Clear Everything?":"Delete Transaction?")+'</h3>'+
-    '<p>'+(target==="all"?"Removes all transactions and resets balances. Can\'t undo.":"This transaction will be permanently removed.")+'</p>'+
+    '<p>'+(target==="all"
+      ?"Removes all transactions for everyone on live sync. Can\'t undo."
+      :"This transaction will be removed for everyone on live sync.")+'</p>'+
     '<div class="modal-btns">'+
     '<button class="cancel" onclick="hideModal()">Cancel</button>'+
     '<button class="confirm" onclick="confirmAction(\''+target+'\')">'+
     (target==="all"?"Clear All":"Delete")+'</button></div></div></div>';
 }
 function hideModal(){el("modal-container").innerHTML="";}
+function sameId(a,b){return String(a)===String(b)}
 function confirmAction(target){
   hideModal();
   if(target==="all"){
     txns=[];
     save();
+    refreshOpenViews();
     cloudClearAll();
     switchView("log");
   }else{
-    var id=parseInt(target);
-    txns=txns.filter(function(t){return t.id!==id});
+    txns=txns.filter(function(t){return !sameId(t.id,target)});
     save();
-    cloudDeleteTx(id);
+    cloudDeleteTx(target);
     expanded=null;
     renderHistory();
   }
@@ -815,7 +818,8 @@ function registerSW(){
 
 // ===== LIVE SYNC (Firebase) =====
 var cloudCol=null;
-var uploadingLocal=false;
+var cloudMeta=null;
+var initialSyncDone=false;
 
 function firebaseReady(){
   var c=window.FIREBASE_CONFIG;
@@ -827,6 +831,18 @@ function setSyncLabel(text,ok){
   if(!n)return;
   n.textContent=text;
   n.style.color=ok?"var(--green)":"var(--dim)";
+}
+
+function markCloudReady(){
+  if(!cloudMeta)return;
+  cloudMeta.set({seeded:true},{merge:true}).catch(function(){});
+}
+
+function applyCloudTxns(incoming){
+  txns=incoming;
+  save();
+  refreshOpenViews();
+  setSyncLabel("Live \u00b7 shared",true);
 }
 
 function txToCloud(tx){
@@ -848,22 +864,41 @@ function txToCloud(tx){
 
 function cloudWriteTx(tx){
   if(!cloudCol)return;
-  cloudCol.doc(String(tx.id)).set(txToCloud(tx)).catch(function(){});
+  markCloudReady();
+  cloudCol.doc(String(tx.id)).set(txToCloud(tx)).catch(function(){
+    setSyncLabel("Save failed to sync");
+  });
 }
 
 function cloudDeleteTx(id){
-  if(!cloudCol)return;
-  cloudCol.doc(String(id)).delete().catch(function(){});
+  if(!cloudCol){
+    setSyncLabel("Not connected — delete stayed on this phone");
+    return;
+  }
+  markCloudReady();
+  cloudCol.doc(String(id)).delete().then(function(){
+    setSyncLabel("Live \u00b7 shared",true);
+  }).catch(function(){
+    setSyncLabel("Delete failed to sync");
+  });
 }
 
 function cloudClearAll(){
-  if(!cloudCol)return;
+  if(!cloudCol){
+    setSyncLabel("Not connected — clear stayed on this phone");
+    return;
+  }
+  markCloudReady();
   cloudCol.get().then(function(snap){
     var db=firebase.firestore();
     var batch=db.batch();
     snap.forEach(function(doc){batch.delete(doc.ref)});
     return batch.commit();
-  }).catch(function(){});
+  }).then(function(){
+    setSyncLabel("Live \u00b7 shared",true);
+  }).catch(function(){
+    setSyncLabel("Clear failed to sync");
+  });
 }
 
 function startCloud(){
@@ -877,25 +912,35 @@ function startCloud(){
     var db=firebase.firestore();
     db.enablePersistence({synchronizeTabs:true}).catch(function(){});
     firebase.auth().signInAnonymously().then(function(){
-      cloudCol=db.collection("groups").doc("eclipse").collection("txns");
+      var group=db.collection("groups").doc("eclipse");
+      cloudCol=group.collection("txns");
+      cloudMeta=group.collection("meta").doc("state");
       cloudCol.onSnapshot(function(snap){
-        if(uploadingLocal)return;
         var incoming=[];
         snap.forEach(function(doc){incoming.push(doc.data())});
         incoming.sort(function(a,b){return String(b.ts||"").localeCompare(String(a.ts||""))});
-        if(incoming.length===0&&txns.length>0){
-          uploadingLocal=true;
-          var batch=db.batch();
-          txns.forEach(function(tx){
-            batch.set(cloudCol.doc(String(tx.id)),txToCloud(tx));
-          });
-          batch.commit().then(function(){uploadingLocal=false}).catch(function(){uploadingLocal=false});
-          return;
+        if(!initialSyncDone){
+          initialSyncDone=true;
+          if(incoming.length===0&&txns.length>0){
+            cloudMeta.get().then(function(meta){
+              if(meta.exists&&meta.data().seeded){
+                applyCloudTxns(incoming);
+                return;
+              }
+              var batch=db.batch();
+              txns.forEach(function(tx){
+                batch.set(cloudCol.doc(String(tx.id)),txToCloud(tx));
+              });
+              batch.set(cloudMeta,{seeded:true},{merge:true});
+              batch.commit().catch(function(){});
+            }).catch(function(){
+              applyCloudTxns(incoming);
+            });
+            return;
+          }
+          if(incoming.length>0) markCloudReady();
         }
-        txns=incoming;
-        save();
-        refreshOpenViews();
-        setSyncLabel("Live \u00b7 shared",true);
+        applyCloudTxns(incoming);
       },function(){
         setSyncLabel("Sync error");
       });
