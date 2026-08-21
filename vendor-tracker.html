@@ -33,7 +33,7 @@ h1{font-size:20px;font-weight:700;letter-spacing:-0.02em}
 .subtitle{margin:2px 0 0 34px;font-size:12px;color:var(--dim)}
 nav{display:flex;gap:3px;padding:10px 16px;border-bottom:1px solid var(--border)}
 .tab{flex:1;padding:9px 0;background:none;border:none;color:var(--dim);
-  font-size:13px;font-weight:600;border-radius:8px;cursor:pointer;font-family:inherit}
+  font-size:12px;font-weight:600;border-radius:8px;cursor:pointer;font-family:inherit}
 .tab.on{background:var(--card);color:var(--accent)}
 main{padding:12px 16px}
 .view{display:none}.view.active{display:block}
@@ -144,6 +144,22 @@ input.full{width:100%}
 .install-banner button{flex-shrink:0;background:none;border:none;color:var(--accent);font-size:12px;
   font-weight:700;cursor:pointer;font-family:inherit;padding:4px 0}
 .sync-status{margin:4px 0 0 34px;font-size:11px;color:var(--dim);font-weight:600}
+
+.chat-who{margin-bottom:10px}
+.chat-log{background:var(--card);border:1px solid var(--border);border-radius:12px;
+  min-height:280px;max-height:52vh;overflow-y:auto;padding:10px 12px}
+.chat-empty{text-align:center;color:var(--dim);padding:36px 8px;font-size:13px}
+.chat-msg{margin:0 0 10px}
+.chat-msg.mine{text-align:right}
+.chat-msg .who{font-size:10px;font-weight:700;color:var(--accent);margin-bottom:3px}
+.chat-msg.mine .who{color:var(--green)}
+.chat-bubble{display:inline-block;max-width:85%;text-align:left;background:var(--card2);
+  border:1px solid var(--border);border-radius:12px;padding:8px 10px;font-size:14px;line-height:1.35}
+.chat-msg.mine .chat-bubble{background:rgba(34,197,94,0.12);border-color:rgba(34,197,94,0.35)}
+.chat-time{font-size:10px;color:var(--dim);margin-top:3px}
+.chat-compose{display:flex;gap:8px;margin-top:10px;align-items:center}
+.chat-compose input{flex:1}
+.chat-compose .btn{width:auto;margin-top:0;padding:12px 16px}
 </style>
 </head>
 <body>
@@ -161,6 +177,7 @@ input.full{width:100%}
     <button class="tab on" id="tab-log" onclick="switchView('log')">Log</button>
     <button class="tab" id="tab-settle" onclick="switchView('settle')">Settle Up</button>
     <button class="tab" id="tab-history" onclick="switchView('history')">History</button>
+    <button class="tab" id="tab-chat" onclick="switchView('chat')">Chat</button>
   </nav>
   <main>
     <!-- ===== LOG VIEW ===== -->
@@ -230,6 +247,17 @@ input.full{width:100%}
     <div class="view" id="view-settle"></div>
     <!-- ===== HISTORY VIEW ===== -->
     <div class="view" id="view-history"></div>
+    <div class="view" id="view-chat">
+      <p class="hint">Booth chat — everyone on live sync sees this.</p>
+      <p class="hint">Who are you on this phone?</p>
+      <div class="picker-row chat-who" id="chat-me-picker"></div>
+      <div class="chat-log" id="chat-log"></div>
+      <div class="chat-compose">
+        <input class="full" type="text" maxlength="280" placeholder="Message the booth…" id="inp-chat" onkeydown="chatKey(event)">
+        <button class="btn" onclick="sendChat()">Send</button>
+      </div>
+      <p class="err" id="chat-err" style="display:none"></p>
+    </div>
   </main>
 </div>
 <div id="modal-container"></div>
@@ -241,7 +269,11 @@ input.full{width:100%}
 <script>
 var VENDORS=["B","D","R","A"], POOL="pool", ALL=VENDORS.concat([POOL]);
 var LS="vtx-v6";
+var ME_LS="vtx-me";
 var txns=[];
+var chatMsgs=[];
+var chatMe=null;
+var cloudChat=null;
 var currentView="log";
 var expanded=null;
 var tradeMode="split"; // "split" or "buyout"
@@ -260,6 +292,7 @@ function el(id){return document.getElementById(id)}
 function refreshOpenViews(){
   if(currentView==="settle")renderSettle();
   if(currentView==="history")renderHistory();
+  if(currentView==="chat")renderChat();
 }
 
 // Build input fields once
@@ -286,6 +319,16 @@ function buildFields(){
     ph+='<button class="'+cls+'" id="pick-'+k+'" onclick="pickBuyout(\''+k+'\')">'+lbl(k)+'</button>';
   });
   picker.innerHTML=ph;
+
+  var mePick=el("chat-me-picker");
+  if(mePick){
+    var mh="";
+    VENDORS.forEach(function(k){
+      mh+='<button class="picker-tag vendor" id="me-'+k+'" onclick="pickMe(\''+k+'\')">'+lbl(k)+'</button>';
+    });
+    mePick.innerHTML=mh;
+    updateMeUI();
+  }
 }
 
 function setTradeMode(mode){
@@ -645,15 +688,91 @@ function renderHistory(){
 
 function toggleTx(id){expanded=expanded===id?null:id;renderHistory();}
 
+// ===== CHAT =====
+function loadMe(){
+  try{var m=localStorage.getItem(ME_LS);if(m&&VENDORS.indexOf(m)!==-1)chatMe=m}catch(e){}
+}
+function saveMe(){try{if(chatMe)localStorage.setItem(ME_LS,chatMe)}catch(e){}}
+function pickMe(k){
+  chatMe=k;
+  saveMe();
+  updateMeUI();
+  renderChat();
+  var err=el("chat-err");
+  if(err)err.style.display="none";
+}
+function updateMeUI(){
+  VENDORS.forEach(function(k){
+    var btn=el("me-"+k);
+    if(btn)btn.classList.toggle("selected",chatMe===k);
+  });
+}
+function chatKey(e){
+  if(e.key==="Enter"){e.preventDefault();sendChat();}
+}
+function scrollChat(){
+  var log=el("chat-log");
+  if(log)log.scrollTop=log.scrollHeight;
+}
+function renderChat(){
+  var log=el("chat-log");
+  if(!log)return;
+  if(!cloudChat){
+    log.innerHTML='<p class="chat-empty">Chat needs live sync. Wait for “Live · shared” under the title.</p>';
+    return;
+  }
+  if(chatMsgs.length===0){
+    log.innerHTML='<p class="chat-empty">No messages yet. Pick who you are, then say hi.</p>';
+    return;
+  }
+  var h="";
+  chatMsgs.forEach(function(m){
+    var mine=chatMe&&sameId(m.from,chatMe);
+    var when=m.ts?new Date(m.ts).toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}):"";
+    h+='<div class="chat-msg'+(mine?" mine":"")+'">'+
+      '<div class="who">'+(mine?"You":lbl(m.from))+'</div>'+
+      '<div class="chat-bubble">'+esc(m.text)+'</div>'+
+      '<div class="chat-time">'+esc(when)+'</div></div>';
+  });
+  log.innerHTML=h;
+  scrollChat();
+}
+function sendChat(){
+  var err=el("chat-err");
+  var inp=el("inp-chat");
+  var text=((inp&&inp.value)||"").replace(/^\s+|\s+$/g,"");
+  if(err)err.style.display="none";
+  if(!cloudChat){
+    if(err){err.textContent="Chat isn’t connected yet.";err.style.display="block";}
+    return;
+  }
+  if(!chatMe){
+    if(err){err.textContent="Pick who you are first (B, D, R, or A).";err.style.display="block";}
+    return;
+  }
+  if(!text)return;
+  if(text.length>280)text=text.slice(0,280);
+  var id=Date.now()+"-"+chatMe;
+  cloudChat.doc(id).set({id:id,ts:new Date().toISOString(),from:chatMe,text:text}).then(function(){
+    if(inp)inp.value="";
+  }).catch(function(){
+    if(err){err.textContent="Couldn’t send. Check live sync.";err.style.display="block";}
+  });
+}
+
 // ===== VIEW SWITCHING =====
 function switchView(v){
   currentView=v;
-  ["log","settle","history"].forEach(function(x){
+  ["log","settle","history","chat"].forEach(function(x){
     el("view-"+x).classList.toggle("active",x===v);
     el("tab-"+x).classList.toggle("on",x===v);
   });
   if(v==="settle")renderSettle();
   if(v==="history")renderHistory();
+  if(v==="chat"){
+    renderChat();
+    scrollChat();
+  }
 }
 
 // ===== BUYOUT SUGGESTION =====
@@ -915,6 +1034,12 @@ function startCloud(){
       var group=db.collection("groups").doc("eclipse");
       cloudCol=group.collection("txns");
       cloudMeta=group.collection("meta").doc("state");
+      cloudChat=group.collection("chat");
+      cloudChat.orderBy("ts").limitToLast(150).onSnapshot(function(snap){
+        chatMsgs=[];
+        snap.forEach(function(doc){chatMsgs.push(doc.data())});
+        if(currentView==="chat")renderChat();
+      },function(){});
       cloudCol.onSnapshot(function(snap){
         var incoming=[];
         snap.forEach(function(doc){incoming.push(doc.data())});
@@ -954,6 +1079,7 @@ function startCloud(){
 
 // ===== INIT =====
 load();
+loadMe();
 buildFields();
 onInput();
 showInstallHint();
