@@ -1,4 +1,4 @@
-var CACHE = "vt-pwa-v2";
+var CACHE = "vt-pwa-v3";
 var ASSETS = [
   "./vendor-tracker.html",
   "./firebase-config.js",
