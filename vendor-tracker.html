@@ -938,7 +938,8 @@ function registerSW(){
 // ===== LIVE SYNC (Firebase) =====
 var cloudCol=null;
 var cloudMeta=null;
-var initialSyncDone=false;
+var cloudWipeId=0;
+var lastTxnSnap=null;
 
 function firebaseReady(){
   var c=window.FIREBASE_CONFIG;
@@ -952,11 +953,6 @@ function setSyncLabel(text,ok){
   n.style.color=ok?"var(--green)":"var(--dim)";
 }
 
-function markCloudReady(){
-  if(!cloudMeta)return;
-  cloudMeta.set({seeded:true},{merge:true}).catch(function(){});
-}
-
 function applyCloudTxns(incoming){
   txns=incoming;
   save();
@@ -968,6 +964,7 @@ function txToCloud(tx){
   var out={
     id:tx.id,
     ts:tx.ts,
+    wipeId:cloudWipeId,
     sold:tx.sold||{},
     tradeIn:tx.tradeIn||{},
     fronted:tx.fronted||{},
@@ -981,9 +978,23 @@ function txToCloud(tx){
   return out;
 }
 
+function ingestTxSnap(snap){
+  var incoming=[];
+  snap.forEach(function(doc){
+    var d=doc.data()||{};
+    var w=d.wipeId||0;
+    if(w!==cloudWipeId){
+      doc.ref.delete().catch(function(){});
+      return;
+    }
+    incoming.push(d);
+  });
+  incoming.sort(function(a,b){return String(b.ts||"").localeCompare(String(a.ts||""))});
+  applyCloudTxns(incoming);
+}
+
 function cloudWriteTx(tx){
   if(!cloudCol)return;
-  markCloudReady();
   cloudCol.doc(String(tx.id)).set(txToCloud(tx)).catch(function(){
     setSyncLabel("Save failed to sync");
   });
@@ -994,7 +1005,6 @@ function cloudDeleteTx(id){
     setSyncLabel("Not connected — delete stayed on this phone");
     return;
   }
-  markCloudReady();
   cloudCol.doc(String(id)).delete().then(function(){
     setSyncLabel("Live \u00b7 shared",true);
   }).catch(function(){
@@ -1003,18 +1013,31 @@ function cloudDeleteTx(id){
 }
 
 function cloudClearAll(){
-  if(!cloudCol){
+  if(!cloudCol||!cloudMeta){
     setSyncLabel("Not connected — clear stayed on this phone");
     return;
   }
-  markCloudReady();
-  cloudCol.get().then(function(snap){
+  setSyncLabel("Clearing for everyone\u2026");
+  var next=cloudWipeId+1;
+  cloudWipeId=next;
+  cloudMeta.set({seeded:true,wipeId:next},{merge:true}).then(function(){
+    return cloudCol.get();
+  }).then(function(snap){
     var db=firebase.firestore();
     var batch=db.batch();
-    snap.forEach(function(doc){batch.delete(doc.ref)});
+    var n=0;
+    snap.forEach(function(doc){
+      batch.delete(doc.ref);
+      n++;
+      if(n===400){
+        batch.commit();
+        batch=db.batch();
+        n=0;
+      }
+    });
     return batch.commit();
   }).then(function(){
-    setSyncLabel("Live \u00b7 shared",true);
+    applyCloudTxns([]);
   }).catch(function(){
     setSyncLabel("Clear failed to sync");
   });
@@ -1029,7 +1052,6 @@ function startCloud(){
   try{
     firebase.initializeApp(window.FIREBASE_CONFIG);
     var db=firebase.firestore();
-    db.enablePersistence({synchronizeTabs:true}).catch(function(){});
     firebase.auth().signInAnonymously().then(function(){
       var group=db.collection("groups").doc("eclipse");
       cloudCol=group.collection("txns");
@@ -1040,32 +1062,16 @@ function startCloud(){
         snap.forEach(function(doc){chatMsgs.push(doc.data())});
         if(currentView==="chat")renderChat();
       },function(){});
+      cloudMeta.onSnapshot(function(meta){
+        var data=meta.exists?meta.data():{};
+        var next=data.wipeId||0;
+        var changed=next!==cloudWipeId;
+        cloudWipeId=next;
+        if(changed&&lastTxnSnap)ingestTxSnap(lastTxnSnap);
+      },function(){});
       cloudCol.onSnapshot(function(snap){
-        var incoming=[];
-        snap.forEach(function(doc){incoming.push(doc.data())});
-        incoming.sort(function(a,b){return String(b.ts||"").localeCompare(String(a.ts||""))});
-        if(!initialSyncDone){
-          initialSyncDone=true;
-          if(incoming.length===0&&txns.length>0){
-            cloudMeta.get().then(function(meta){
-              if(meta.exists&&meta.data().seeded){
-                applyCloudTxns(incoming);
-                return;
-              }
-              var batch=db.batch();
-              txns.forEach(function(tx){
-                batch.set(cloudCol.doc(String(tx.id)),txToCloud(tx));
-              });
-              batch.set(cloudMeta,{seeded:true},{merge:true});
-              batch.commit().catch(function(){});
-            }).catch(function(){
-              applyCloudTxns(incoming);
-            });
-            return;
-          }
-          if(incoming.length>0) markCloudReady();
-        }
-        applyCloudTxns(incoming);
+        lastTxnSnap=snap;
+        ingestTxSnap(snap);
       },function(){
         setSyncLabel("Sync error");
       });
