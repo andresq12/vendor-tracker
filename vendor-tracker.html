@@ -248,7 +248,7 @@ input.full{width:100%}
       <div class="photo-box">
         <input type="file" accept="image/*" id="inp-photo" class="hidden" onchange="onPhotoPicked(event)">
         <button type="button" class="btn secondary" onclick="pickPhoto()">Add photo (camera or library)</button>
-        <p class="hint">On iPhone you’ll get Take Photo or Photo Library. Syncs to everyone on live.</p>
+        <p class="hint">On iPhone you’ll get Take Photo or Photo Library. Photos sync with the sale.</p>
         <div class="photo-preview" id="photo-preview">
           <img id="photo-preview-img" alt="Selected photo">
           <button type="button" class="btn danger" style="margin-top:8px" onclick="clearPendingPhoto()">Remove photo</button>
@@ -306,8 +306,20 @@ function pn(v){var x=parseFloat(v);return isNaN(x)?0:x}
 function fm(a){return a<0?"-$"+Math.abs(a).toFixed(2):"$"+a.toFixed(2)}
 function lbl(k){return k===POOL?"Pool":"Vendor "+k}
 function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
+function photoSrc(tx){return(tx&&(tx.photoData||tx.photoURL))||""}
+function txHasPhoto(tx){return!!photoSrc(tx)}
 function load(){try{var d=localStorage.getItem(LS);if(d)txns=JSON.parse(d)}catch(e){}}
-function save(){try{localStorage.setItem(LS,JSON.stringify(txns))}catch(e){}}
+function save(){
+  try{
+    var slim=txns.map(function(tx){
+      var o={};
+      for(var k in tx){if(k!=="photoData")o[k]=tx[k]}
+      if(tx.photoData)o.hasPhoto=true;
+      return o;
+    });
+    localStorage.setItem(LS,JSON.stringify(slim));
+  }catch(e){}
+}
 function el(id){return document.getElementById(id)}
 function refreshOpenViews(){
   if(currentView==="settle")renderSettle();
@@ -563,7 +575,7 @@ function doSubmit(){
       if(!url){
         setSyncLabel("Sale saved \u00b7 photo failed");
         var err=el("err-msg");
-        if(err){err.textContent="Sale is in History. Photo didn’t upload"+(lastPhotoError?": "+lastPhotoError:"")+". In Firebase, open Storage → Get started, then add the photo from History.";err.style.display="block";}
+        if(err){err.textContent="Sale is in History. Photo didn’t save"+(lastPhotoError?": "+lastPhotoError:". Try adding it from History.");err.style.display="block";}
         return;
       }
       attachPhotoUrl(tx.id,url);
@@ -684,7 +696,7 @@ function renderHistory(){
   txns.forEach(function(tx){
     var open=expanded===tx.id;
     h+='<div class="tx-card"><div class="tx-top" onclick="toggleTx('+tx.id+')">'+
-      '<div><span class="tx-type">'+txType(tx)+(tx.photoURL?" \ud83d\udcf7":"")+'</span>'+
+      '<div><span class="tx-type">'+txType(tx)+(txHasPhoto(tx)?" \ud83d\udcf7":"")+'</span>'+
       '<span class="tx-date">'+new Date(tx.ts).toLocaleDateString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})+'</span></div>'+
       '<span class="tx-cash">'+fm(tx.cashIn)+'</span></div>';
     if(tx.note) h+='<p class="tx-note">'+esc(tx.note)+'</p>';
@@ -712,10 +724,10 @@ function renderHistory(){
         }
         h+='</div></div>';
       });
-      if(tx.photoURL){
-        h+='<img class="tx-photo" src="'+esc(tx.photoURL)+'" alt="Transaction photo" onclick="event.stopPropagation();openPhotoById(\''+esc(String(tx.id))+'\')">';
+      if(txHasPhoto(tx)){
+        h+='<img class="tx-photo" src="'+esc(photoSrc(tx))+'" alt="Transaction photo" onclick="event.stopPropagation();openPhotoById(\''+esc(String(tx.id))+'\')">';
       }
-      h+='<button class="export-btn" onclick="event.stopPropagation();pickPhoto(\''+esc(String(tx.id))+'\')">'+(tx.photoURL?"Replace photo":"Add photo")+'</button>';
+      h+='<button class="export-btn" onclick="event.stopPropagation();pickPhoto(\''+esc(String(tx.id))+'\')">'+(txHasPhoto(tx)?"Replace photo":"Add photo")+'</button>';
       h+='<button class="btn danger" style="margin-top:8px" onclick="showModal('+tx.id+')">Delete</button></div>';
     }
     h+='</div>';
@@ -764,123 +776,86 @@ function onPhotoPicked(e){
   },50);
 }
 function compressImage(file,cb){
-  var done=false;
-  function once(blob){
-    if(done)return;
-    done=true;
-    cb(blob||file);
-  }
-  setTimeout(function(){once(file)},5000);
   var reader=new FileReader();
+  reader.onerror=function(){cb(null)};
   reader.onload=function(){
     var img=new Image();
+    img.onerror=function(){cb(null)};
     img.onload=function(){
-      try{
-        var max=1280,w=img.width,h=img.height;
-        if(!w||!h){once(file);return;}
-        if(w>max||h>max){
-          if(w>h){h=Math.round(h*max/w);w=max;}
-          else{w=Math.round(w*max/h);h=max;}
-        }
-        var canvas=document.createElement("canvas");
-        canvas.width=w;canvas.height=h;
-        canvas.getContext("2d").drawImage(img,0,0,w,h);
-        if(canvas.toBlob){
-          canvas.toBlob(function(blob){once(blob||file)},"image/jpeg",0.7);
-        }else{once(file);}
-      }catch(err){once(file);}
+      var max=1280,quality=0.68,tries=0;
+      function attempt(){
+        tries++;
+        try{
+          var w=img.width,h=img.height;
+          if(!w||!h){cb(null);return;}
+          if(w>max||h>max){
+            if(w>h){h=Math.round(h*max/w);w=max;}
+            else{w=Math.round(w*max/h);h=max;}
+          }
+          var canvas=document.createElement("canvas");
+          canvas.width=w;canvas.height=h;
+          canvas.getContext("2d").drawImage(img,0,0,w,h);
+          if(!canvas.toBlob){cb(null);return;}
+          canvas.toBlob(function(blob){
+            if(!blob){cb(null);return;}
+            if(blob.size>700000&&tries<5){
+              max=Math.round(max*0.75);
+              quality=Math.max(0.4,quality-0.1);
+              attempt();
+              return;
+            }
+            cb(blob);
+          },"image/jpeg",quality);
+        }catch(err){cb(null);}
+      }
+      attempt();
     };
-    img.onerror=function(){once(file)};
     img.src=reader.result;
   };
-  reader.onerror=function(){once(file)};
-  try{reader.readAsDataURL(file)}catch(err){once(file)}
+  try{reader.readAsDataURL(file)}catch(err){cb(null)}
 }
-function photoPath(id){return "groups/eclipse/txns/"+String(id)+"/photo.jpg"}
 var lastPhotoError="";
-function storageBuckets(){
-  var b=((firebase.app().options||{}).storageBucket)||(window.FIREBASE_CONFIG&&window.FIREBASE_CONFIG.storageBucket)||"";
-  var list=[];
-  if(b)list.push(b);
-  if(b.indexOf("firebasestorage.app")!==-1)list.push(b.replace("firebasestorage.app","appspot.com"));
-  if(list.indexOf("eclipse-vender-tracker.appspot.com")===-1)list.push("eclipse-vender-tracker.appspot.com");
-  return list;
-}
 function uploadTxPhoto(id,blob,cb){
-  var called=false;
-  function once(url,err){
-    if(called)return;
-    called=true;
-    if(err)lastPhotoError=String(err);
-    cb(url);
-  }
-  if(!blob||typeof firebase==="undefined"||!firebase.storage){once(null,"Storage SDK missing");return;}
-  setTimeout(function(){once(null,lastPhotoError||"Upload timed out")},45000);
-  function putNow(){
-    var path=photoPath(id);
-    var buckets=storageBuckets();
-    var i=0;
-    function tryNext(){
-      if(i>=buckets.length){once(null,lastPhotoError||"Storage upload failed");return;}
-      var bucket=buckets[i++];
-      var gs=bucket.indexOf("gs://")===0?bucket:"gs://"+bucket;
-      try{
-        var ref=firebase.app().storage(gs).ref(path);
-        ref.put(blob,{contentType:"image/jpeg"}).then(function(){return ref.getDownloadURL()}).then(function(url){
-          once(url||null);
-        }).catch(function(e){
-          lastPhotoError=(e&&(e.code||"")+" "+(e.message||e))||"upload failed";
-          tryNext();
-        });
-      }catch(e){
-        lastPhotoError=String(e&&e.message||e);
-        tryNext();
-      }
-    }
-    tryNext();
-  }
-  try{
-    var user=firebase.auth().currentUser;
-    if(user){putNow();return;}
-    firebase.auth().signInAnonymously().then(putNow).catch(function(e){once(null,e&&e.message||"Sign-in failed")});
-  }catch(e){once(null,String(e&&e.message||e));}
+  lastPhotoError="";
+  if(!blob){lastPhotoError="No photo";cb(null);return;}
+  compressImage(blob,function(small){
+    if(!small){lastPhotoError="Could not compress that camera photo";cb(null);return;}
+    if(small.size>800000){lastPhotoError="Photo is still too large";cb(null);return;}
+    var r=new FileReader();
+    r.onerror=function(){lastPhotoError="Could not read photo";cb(null)};
+    r.onload=function(){cb(r.result||null)};
+    r.readAsDataURL(small);
+  });
 }
-function attachPhotoUrl(id,url){
+function attachPhotoUrl(id,data){
   var tx=null;
   txns.forEach(function(t){if(sameId(t.id,id))tx=t});
-  if(!tx)return;
-  tx.photoURL=url;
+  if(!tx||!data)return;
+  if(String(data).indexOf("data:")===0){tx.photoData=data;delete tx.photoURL;}
+  else{tx.photoURL=data;delete tx.photoData;}
   save();
   cloudWriteTx(tx);
   refreshOpenViews();
   setSyncLabel("Live \u00b7 shared",true);
 }
 function uploadAndAttach(id,blob){
-  uploadTxPhoto(id,blob,function(url){
-    if(!url){
-      setSyncLabel("Photo didn’t sync — turn on Firebase Storage");
+  uploadTxPhoto(id,blob,function(data){
+    if(!data){
+      setSyncLabel("Photo didn’t save");
       return;
     }
-    var tx=null;
-    txns.forEach(function(t){if(sameId(t.id,id))tx=t});
-    if(!tx)return;
-    tx.photoURL=url;
-    save();
-    cloudWriteTx(tx);
-    renderHistory();
+    attachPhotoUrl(id,data);
   });
 }
-function deleteTxPhoto(id){
-  if(typeof firebase==="undefined"||!firebase.storage)return;
-  try{firebase.storage().ref(photoPath(id)).delete().catch(function(){})}catch(e){}
-}
+function deleteTxPhoto(id){}
 function openPhotoById(id){
   var tx=null;
   txns.forEach(function(t){if(sameId(t.id,id))tx=t});
-  if(!tx||!tx.photoURL)return;
+  var src=photoSrc(tx);
+  if(!src)return;
   el("modal-container").innerHTML='<div class="modal-bg" onclick="hideModal()">'+
     '<div class="modal photo-modal" onclick="event.stopPropagation()">'+
-    '<img src="'+esc(tx.photoURL)+'" alt="Transaction photo">'+
+    '<img src="'+esc(src)+'" alt="Transaction photo">'+
     '<button class="btn secondary" onclick="hideModal()">Close</button></div></div>';
 }
 
@@ -1169,6 +1144,7 @@ function txToCloud(tx){
     note:tx.note||""
   };
   if(tx.photoURL)out.photoURL=tx.photoURL;
+  if(tx.photoData)out.photoData=tx.photoData;
   if(tx.buyout&&tx.buyout.vendor){
     out.buyout={vendor:tx.buyout.vendor,total:tx.buyout.total||0};
   }
@@ -1193,6 +1169,17 @@ function ingestTxSnap(snap){
 function cloudWriteTx(tx){
   if(!cloudCol)return;
   cloudCol.doc(String(tx.id)).set(txToCloud(tx)).catch(function(){
+    if(tx.photoData){
+      var copy={};
+      for(var k in tx)copy[k]=tx[k];
+      delete copy.photoData;
+      cloudCol.doc(String(tx.id)).set(txToCloud(copy)).catch(function(){
+        setSyncLabel("Save failed to sync");
+      });
+      lastPhotoError="Photo too large for sync";
+      setSyncLabel("Sale saved \u00b7 photo too large");
+      return;
+    }
     setSyncLabel("Save failed to sync");
   });
 }
