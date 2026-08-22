@@ -296,9 +296,6 @@ var currentView="log";
 var expanded=null;
 var tradeMode="split"; // "split" or "buyout"
 var buyoutVendor=null;
-var BUYOUT_SHARE=0.5; // handoff example: vendor sold ~53% — suggest they buy out
-var buyoutPromptTimer=null;
-var buyoutPromptState="idle"; // idle | shown | dismissed | accepted
 var pendingPhoto=null;
 var photoAttachId=null;
 
@@ -526,8 +523,6 @@ function onInput(){
     err.textContent="Say who provided the "+fm(d.cashOut)+" given to the customer \u2014 vendor wallets and/or Pool must add up to that amount";
     err.style.display="block";
   }else{err.style.display="none";}
-
-  scheduleBuyoutPrompt(form,d);
 }
 
 function clearFormInputs(){
@@ -541,8 +536,6 @@ function clearFormInputs(){
   el("inp-note").value="";
   el("inp-buyout-total").value="";
   buyoutVendor=null;
-  buyoutPromptState="idle";
-  if(buyoutPromptTimer){clearTimeout(buyoutPromptTimer);buyoutPromptTimer=null;}
   clearPendingPhoto();
   updatePickerUI();
   setTradeMode("split");
@@ -944,80 +937,6 @@ function switchView(v){
     renderChat();
     scrollChat();
   }
-}
-
-// ===== BUYOUT SUGGESTION =====
-function leadingVendor(form){
-  var lead=null,amt=0;
-  VENDORS.forEach(function(k){
-    if(form.sold[k]>amt){amt=form.sold[k];lead=k;}
-  });
-  return{key:lead,amt:amt};
-}
-
-function shouldSuggestBuyout(form,d){
-  if(tradeMode!=="split")return false;
-  if(buyoutPromptState==="dismissed"||buyoutPromptState==="accepted"||buyoutPromptState==="shown")return false;
-  if(d.totalSold<0.005||d.totalTradeIn<0.005)return false;
-  var larger=Math.max(d.totalSold,d.totalTradeIn);
-  var smaller=Math.min(d.totalSold,d.totalTradeIn);
-  // Two-way trade: the smaller side is at least 25% of the larger
-  return smaller>=larger*0.25;
-}
-
-function scheduleBuyoutPrompt(form,d){
-  if(buyoutPromptTimer){clearTimeout(buyoutPromptTimer);buyoutPromptTimer=null;}
-  if(!shouldSuggestBuyout(form,d))return;
-  buyoutPromptTimer=setTimeout(function(){
-    var f=readForm();
-    var der=derive(f);
-    if(!shouldSuggestBuyout(f,der))return;
-    showBuyoutPrompt(f,der);
-  },800);
-}
-
-function showBuyoutPrompt(form,d){
-  if(el("modal-container").innerHTML)return;
-  buyoutPromptState="shown";
-  var lead=leadingVendor(form);
-  var share=d.totalSold>0?lead.amt/d.totalSold:0;
-  var showVendor=lead.key&&share>=BUYOUT_SHARE;
-  var poolPays=0;
-  ALL.forEach(function(k){if(k!==POOL)poolPays+=form.sold[k]});
-  var body="Cards going out: "+fm(d.totalSold)+". Cards coming in: "+fm(d.totalTradeIn)+
-    ". For simplicity, Pool can take all the trade-in cards so you don't split them person by person.";
-  if(poolPays>0){
-    body+=" Pool would cover "+fm(poolPays)+" in vendor sales (and keep its own card value).";
-  }
-  if(showVendor){
-    body+=" "+lbl(lead.key)+" sold "+Math.round(share*100)+"% of this trade \u2014 they could buy out instead.";
-  }
-  var btns='<button class="ok" onclick="acceptBuyoutPrompt(\'pool\')">Pool takes the cards</button>';
-  if(showVendor){
-    btns+='<button class="vendor-ok" onclick="acceptBuyoutPrompt(\''+lead.key+'\')">'+lbl(lead.key)+' buys out</button>';
-  }
-  btns+='<button class="cancel" onclick="dismissBuyoutPrompt()">Keep splitting</button>';
-  el("modal-container").innerHTML='<div class="modal-bg" onclick="dismissBuyoutPrompt()">'+
-    '<div class="modal" onclick="event.stopPropagation()">'+
-    '<h3>Use a pool buyout?</h3>'+
-    '<p>'+body+'</p>'+
-    '<div class="modal-btns stack">'+btns+'</div></div></div>';
-}
-
-function acceptBuyoutPrompt(who){
-  var form=readForm();
-  var d=derive(form);
-  buyoutPromptState="accepted";
-  hideModal();
-  el("inp-buyout-total").value=d.totalTradeIn>0?String(d.totalTradeIn):"";
-  buyoutVendor=who;
-  updatePickerUI();
-  setTradeMode("buyout");
-}
-
-function dismissBuyoutPrompt(){
-  buyoutPromptState="dismissed";
-  hideModal();
 }
 
 // ===== MODAL =====
