@@ -64,6 +64,9 @@ input.full{width:100%}
 .toggle-btn{flex:1;padding:8px 4px;background:var(--inputBg);border:1px solid var(--border);
   color:var(--dim);font-size:12px;font-weight:600;border-radius:8px;cursor:pointer;font-family:inherit}
 .toggle-btn.on{background:var(--card2);color:var(--accent);border-color:var(--accent)}
+.trade-open-btn{width:100%;margin-top:16px;padding:12px;background:var(--card);border:1px solid var(--border);
+  color:var(--text);font-size:14px;font-weight:700;border-radius:12px;cursor:pointer;font-family:inherit}
+.trade-open-btn.on{border-color:var(--accent);color:var(--accent);background:var(--card2)}
 
 /* Buyout vendor picker */
 .picker-row{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
@@ -194,6 +197,8 @@ input.full{width:100%}
       <p class="hint">Which vendor's cards went to the customer?</p>
       <div id="sold-fields"></div>
 
+      <button type="button" class="trade-open-btn" id="trade-open-btn" onclick="toggleTradeSection()">Any trade-in cards?</button>
+      <div id="trade-section" class="hidden">
       <div class="sec-head"><span class="sec-title">Trade-In Cards Received</span>
         <span class="sec-right" id="trade-total">$0.00</span></div>
       <p class="hint">How are the trade-in cards handled?</p>
@@ -220,6 +225,7 @@ input.full{width:100%}
         <p class="hint" style="margin-top:10px">Who's buying out and taking all the cards?</p>
         <div class="picker-row" id="buyout-picker"></div>
         <div id="buyout-summary-area"></div>
+      </div>
       </div>
 
       <div class="sec-head"><span class="sec-title">Cash</span>
@@ -295,6 +301,7 @@ var cloudChat=null;
 var currentView="log";
 var expanded=null;
 var tradeMode="split"; // "split" or "buyout"
+var tradeOpen=false;
 var buyoutVendor=null;
 var pendingPhoto=null;
 var photoAttachId=null;
@@ -370,6 +377,38 @@ function setTradeMode(mode){
   onInput();
 }
 
+function toggleTradeSection(){
+  setTradeOpen(!tradeOpen);
+}
+
+function setTradeOpen(open){
+  tradeOpen=!!open;
+  var sec=el("trade-section");
+  var btn=el("trade-open-btn");
+  if(sec)sec.classList.toggle("hidden",!tradeOpen);
+  if(btn){
+    btn.classList.toggle("on",tradeOpen);
+    btn.textContent=tradeOpen?"Hide trade-in":"Any trade-in cards?";
+  }
+  if(!tradeOpen){
+    ALL.forEach(function(k){
+      var inp=el("inp-tradeIn-"+k);
+      if(inp)inp.value="";
+    });
+    var bt=el("inp-buyout-total");
+    if(bt)bt.value="";
+    buyoutVendor=null;
+    tradeMode="split";
+    var ts=el("tog-split"),tb=el("tog-buyout"),sp=el("trade-split"),bo=el("trade-buyout");
+    if(ts)ts.classList.add("on");
+    if(tb)tb.classList.remove("on");
+    if(sp)sp.classList.remove("hidden");
+    if(bo)bo.classList.add("hidden");
+    updatePickerUI();
+  }
+  onInput();
+}
+
 function pickBuyout(k){
   buyoutVendor=buyoutVendor===k?null:k;
   updatePickerUI();
@@ -392,18 +431,19 @@ function readForm(){
     form.fronted[k]=pn((el("inp-fronted-"+k)||{}).value);
   });
 
-  if(tradeMode==="split"){
+  if(tradeMode==="split"&&tradeOpen){
     ALL.forEach(function(k){
       form.tradeIn[k]=pn((el("inp-tradeIn-"+k)||{}).value);
     });
-  }else{
-    // Buyout mode: all trade-in goes to selected vendor
+  }else if(tradeMode==="buyout"&&tradeOpen){
     var total=pn((el("inp-buyout-total")||{}).value);
     ALL.forEach(function(k){form.tradeIn[k]=0});
     if(buyoutVendor&&total>0){
       form.tradeIn[buyoutVendor]=total;
       form.buyout={vendor:buyoutVendor,total:total};
     }
+  }else{
+    ALL.forEach(function(k){form.tradeIn[k]=0});
   }
 
   form.cashIn=pn((el("inp-cashIn")||{}).value);
@@ -538,8 +578,7 @@ function clearFormInputs(){
   buyoutVendor=null;
   clearPendingPhoto();
   updatePickerUI();
-  setTradeMode("split");
-  onInput();
+  setTradeOpen(false);
 }
 
 function doSubmit(){
