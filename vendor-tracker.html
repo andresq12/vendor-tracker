@@ -291,7 +291,7 @@ input.full{width:100%}
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-storage-compat.js"></script>
 <script src="firebase-config.js"></script>
 <script>
-var VENDORS=["B","D","R","A"], POOL="pool", ALL=VENDORS.concat([POOL]);
+var VENDORS=["B","D","R","A"], POOL="pool", TILL="till", ALL=VENDORS.concat([POOL]);
 var LS="vtx-v6";
 var ME_LS="vtx-me";
 var txns=[];
@@ -308,7 +308,11 @@ var photoAttachId=null;
 
 function pn(v){var x=parseFloat(v);return isNaN(x)?0:x}
 function fm(a){return a<0?"-$"+Math.abs(a).toFixed(2):"$"+a.toFixed(2)}
-function lbl(k){return k===POOL?"Pool":"Vendor "+k}
+function lbl(k){
+  if(k===POOL) return "Pool";
+  if(k===TILL) return "Customer cash";
+  return "Vendor "+k;
+}
 function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
 function photoSrc(tx){return(tx&&(tx.photoData||tx.photoURL))||""}
 function txHasPhoto(tx){return!!photoSrc(tx)}
@@ -667,7 +671,7 @@ function addPayoutEdge(map,from,to,amt){
 }
 
 function buildPayoutSteps(nets){
-  var map={},order={B:0,D:1,R:2,A:3,pool:4};
+  var map={},order={till:0,B:1,D:2,R:3,A:4,pool:5};
   txns.forEach(function(tx){
     var buyers=ALL.filter(function(k){return(tx.tradeIn[k]||0)>0.005});
     var taker=(tx.buyout&&tx.buyout.vendor)||(buyers.length===1?buyers[0]:null);
@@ -677,18 +681,18 @@ function buildPayoutSteps(nets){
         addPayoutEdge(map,taker,k,(tx.sold[k]||0)+(tx.fronted[k]||0));
       });
       var tNet=(tx.sold[taker]||0)+(tx.fronted[taker]||0)-(tx.tradeIn[taker]||0);
-      if(tNet>0.005&&taker!==POOL) addPayoutEdge(map,POOL,taker,tNet);
+      if(tNet>0.005&&taker!==POOL) addPayoutEdge(map,TILL,taker,tNet);
     }else if(buyers.length===0){
       ALL.forEach(function(k){
         if(k===POOL)return;
-        addPayoutEdge(map,POOL,k,(tx.sold[k]||0)+(tx.fronted[k]||0));
+        addPayoutEdge(map,TILL,k,(tx.sold[k]||0)+(tx.fronted[k]||0));
       });
     }else{
       ALL.forEach(function(k){
         if(k===POOL)return;
         var n=(tx.sold[k]||0)+(tx.fronted[k]||0)-(tx.tradeIn[k]||0);
-        if(n>0.005) addPayoutEdge(map,POOL,k,n);
-        else if(n<-0.005) addPayoutEdge(map,k,POOL,-n);
+        if(n>0.005) addPayoutEdge(map,TILL,k,n);
+        else if(n<-0.005) addPayoutEdge(map,k,TILL,-n);
       });
     }
   });
@@ -698,8 +702,9 @@ function buildPayoutSteps(nets){
     if(!(amt>0.005))return;
     var p=k.split("\t"),from=p[0],to=p[1],why=nets[to]?netReason(nets[to]):"";
     var reason;
-    if(from===POOL) reason="From shared pool / customer cash"+(why?(" \u2014 "+why):"");
-    else if(to===POOL) reason=lbl(from)+" took trade-in cards \u2014 pays the pool"+(why?(" \u2014 "+why):"");
+    if(from===TILL) reason="From cash customers paid"+(why?(" \u2014 "+why):"");
+    else if(to===TILL) reason="Goes into the till"+(why?(" \u2014 "+why):"");
+    else if(to===POOL) reason=lbl(from)+" took trade-in cards \u2014 pays Pool for Eclipse cards"+(why?(" \u2014 "+why):"");
     else reason=lbl(from)+" took the trade-in cards \u2014 pays "+lbl(to)+(why?(" \u2014 "+why):"");
     steps.push({from:from,to:to,amt:amt,reason:reason});
   });
@@ -722,9 +727,9 @@ function renderSettle(){
     sub+=' \u2014 '+fm(s.totalCashOut)+' given back';
   }
   var h='<div class="settle-card" style="text-align:center">'+
-    '<div class="settle-header">Pool Cash from Customers</div>'+
+    '<div class="settle-header">Cash collected</div>'+
     '<div class="settle-big">'+fm(s.cashOnHand)+'</div>'+
-    '<div class="settle-sub">'+sub+' \u00b7 shared group money</div></div>';
+    '<div class="settle-sub">'+sub+' \u00b7 the till, not Pool</div></div>';
 
   h+='<div class="settle-card"><div class="settle-header">What Everyone Is Owed (Net)</div>'+
     '<p class="hint" style="margin-bottom:10px">Card sales + reimbursements \u2212 trade-in cards received</p>';
@@ -744,7 +749,7 @@ function renderSettle(){
 
   if(s.steps.length>0){
     h+='<div class="settle-card"><div class="settle-header">Who Pays Whom</div>'+
-      '<p class="hint" style="margin-bottom:10px">Pool is shared group cash and cards. Whoever took the trade-ins pays the others directly \u2014 no cash-pile middleman.</p>';
+      '<p class="hint" style="margin-bottom:10px">Pool = shared Eclipse cards. Customer cash = money from the till (only if customers actually paid). Buyouts are vendor \u2192 vendor.</p>';
     s.steps.forEach(function(step){
       h+='<div class="settle-action"><div style="margin-bottom:4px">'+
         '<strong>'+lbl(step.from)+'</strong> <span class="arrow">\u2192</span> <strong>'+lbl(step.to)+'</strong></div>'+
